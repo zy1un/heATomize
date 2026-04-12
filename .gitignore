@@ -1,0 +1,15 @@
+.godot/
+
+# Godot export outputs
+/build/
+/exports/
+
+# Mono / C# artifacts if added later
+/.mono/
+/*.csproj
+/*.sln
+
+# OS / editor noise
+Thumbs.db
+.DS_Store
+*.tmp
