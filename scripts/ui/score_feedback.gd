@@ -88,12 +88,12 @@ func _show_survival(data: Dictionary) -> void:
 
 func _show_clear(data: Dictionary) -> void:
 	var heat: int = data.get("heat", 1)
-	var base_score: int = data.get("base_score", 0)
+	var final_score: int = data.get("final_score", data.get("base_score", 0))
 	var cells = data.get("cells", [])
 
 	var fill_color: Color = HEAT_FILL_COLORS.get(heat, Color.WHITE)
 	var outline_color: Color = HEAT_OUTLINE_COLORS.get(heat, Color.BLACK)
-	var text := "+" + str(base_score)
+	var text := "+" + str(final_score)
 
 	# Find center of eliminated cells
 	var center: Vector2 = Vector2.ZERO

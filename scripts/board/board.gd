@@ -689,10 +689,12 @@ func resolve_system_turn() -> void:
 			log_elimination_groups([group])
 
 			# Emit score events for feedback
+			var final_score: int = group_base * chain_mult
 			score_event.emit("clear", {
 				"heat": group_heat,
 				"cell_count": eliminated_cells.size(),
 				"base_score": group_base,
+				"final_score": final_score,
 				"cells": group_cells,
 			})
 			if current_chain >= 2:
