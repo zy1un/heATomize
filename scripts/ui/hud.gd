@@ -35,8 +35,7 @@ const PREVIEW_OUTLINES := {
 @onready var show_heat_toggle: CheckButton = %ShowHeatToggle
 @onready var move_preview_toggle: CheckButton = %MovePreviewToggle
 @onready var chaos_mode_toggle: CheckButton = %ChaosModeToggle
-@onready var cascade_button: Button = %CascadeButton
-@onready var blocked_button: Button = %BlockedButton
+@onready var preset_button: MenuButton = %PresetButton
 
 var rules_overlay: Control
 var rules_panel: PanelContainer
@@ -45,8 +44,9 @@ var rules_close_button: Button
 
 func _ready() -> void:
 	apply_panel_style()
-	for button in [restart_button, rules_button, cascade_button, blocked_button]:
-		apply_button_style(button)
+	apply_button_style(restart_button)
+	apply_button_style(rules_button)
+	apply_menu_button_style(preset_button)
 	apply_toggle_style(show_heat_toggle)
 	apply_toggle_style(move_preview_toggle)
 	apply_toggle_style(chaos_mode_toggle)
@@ -56,8 +56,15 @@ func _ready() -> void:
 	show_heat_toggle.toggled.connect(func(enabled: bool) -> void: show_heat_labels_changed.emit(enabled))
 	move_preview_toggle.toggled.connect(func(enabled: bool) -> void: move_preview_changed.emit(enabled))
 	chaos_mode_toggle.toggled.connect(func(enabled: bool) -> void: chaos_mode_changed.emit(enabled))
-	cascade_button.pressed.connect(func() -> void: debug_board_requested.emit("cascade"))
-	blocked_button.pressed.connect(func() -> void: debug_board_requested.emit("blocked"))
+
+	# Preset submenu
+	var popup: PopupMenu = preset_button.get_popup()
+	popup.add_item("Cascade (F5)", 0)
+	popup.add_item("Blocked (F6)", 1)
+	popup.add_item("Chain (F7)", 2)
+	apply_popup_style(popup)
+	popup.id_pressed.connect(_on_preset_selected)
+
 	build_rules_overlay()
 
 
@@ -145,6 +152,45 @@ func apply_button_style(button: Button) -> void:
 func apply_toggle_style(toggle: CheckButton) -> void:
 	toggle.add_theme_color_override("font_color", Color8(245, 240, 235))
 	toggle.add_theme_font_size_override("font_size", 15)
+
+
+func apply_menu_button_style(menu_btn: MenuButton) -> void:
+	apply_button_style(menu_btn)
+
+
+func apply_popup_style(popup: PopupMenu) -> void:
+	popup.add_theme_color_override("font_color", Color8(245, 240, 235))
+	popup.add_theme_color_override("font_hover_color", Color8(255, 226, 130))
+	popup.add_theme_font_size_override("font_size", 16)
+	popup.add_theme_constant_override("v_separation", 8)
+	popup.add_theme_constant_override("h_separation", 16)
+
+	var bg_style := StyleBoxFlat.new()
+	bg_style.bg_color = Color8(34, 31, 29, 246)
+	bg_style.border_color = Color8(176, 128, 58)
+	bg_style.set_border_width_all(1)
+	bg_style.corner_radius_top_left = 6
+	bg_style.corner_radius_top_right = 6
+	bg_style.corner_radius_bottom_left = 6
+	bg_style.corner_radius_bottom_right = 6
+	popup.add_theme_stylebox_override("panel", bg_style)
+
+	var hover_style := StyleBoxFlat.new()
+	hover_style.bg_color = Color8(72, 62, 48)
+	hover_style.border_color = Color8(176, 128, 58, 120)
+	hover_style.set_border_width_all(1)
+	hover_style.corner_radius_top_left = 4
+	hover_style.corner_radius_top_right = 4
+	hover_style.corner_radius_bottom_left = 4
+	hover_style.corner_radius_bottom_right = 4
+	popup.add_theme_stylebox_override("hover", hover_style)
+
+
+func _on_preset_selected(id: int) -> void:
+	match id:
+		0: debug_board_requested.emit("cascade")
+		1: debug_board_requested.emit("blocked")
+		2: debug_board_requested.emit("chain")
 
 
 func build_rules_overlay() -> void:

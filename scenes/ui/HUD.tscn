@@ -118,16 +118,7 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Rules"
 
-[node name="DebugRow" type="HBoxContainer" parent="Panel/Margin/VBox"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="CascadeButton" type="Button" parent="Panel/Margin/VBox/DebugRow"]
+[node name="PresetButton" type="MenuButton" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Cascade"
-
-[node name="BlockedButton" type="Button" parent="Panel/Margin/VBox/DebugRow"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Blocked"
+text = "Presets"

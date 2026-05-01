@@ -1,6 +1,7 @@
 extends Node2D
 
 signal status_changed(snapshot: Dictionary)
+signal score_event(event_type: String, data: Dictionary)
 
 const BoardPathfinding = preload("res://scripts/board/board_pathfinding.gd")
 const BoardRules = preload("res://scripts/board/board_rules.gd")
@@ -88,6 +89,8 @@ var move_preview_enabled := true
 var chaos_mode_enabled := false
 var move_preview_target := Vector2i(-1, -1)
 var move_preview_nodes: Array[Node] = []
+var _preview_hidden_cell := Vector2i(-1, -1)
+var _last_move_target := Vector2i(-1, -1)
 var pathfinding: BoardPathfinding
 var rules: BoardRules
 var turns: BoardTurns
@@ -123,6 +126,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		elif event.keycode == KEY_F6:
 			load_debug_board("blocked")
+			return
+		elif event.keycode == KEY_F7:
+			load_debug_board("chain")
 			return
 		elif event.keycode == KEY_R:
 			restart_game()
@@ -405,6 +411,7 @@ func move_selected_ball_to(target_cell: Vector2i) -> bool:
 	selected_cell = Vector2i(-1, -1)
 	preview_path.clear()
 	clear_move_heat_preview()
+	_last_move_target = target_cell
 	print("Moved: ", from_cell, " -> ", target_cell)
 	return true
 
@@ -488,6 +495,12 @@ func apply_preview_heat_updates(preview_board: Array, heat_updates: Array[Dictio
 
 func render_move_preview_board(preview_board: Array, target_cell: Vector2i) -> void:
 	clear_move_preview_nodes()
+	# Hide the real ball at selected_cell so preview version replaces it visually
+	if is_in_grid(selected_cell):
+		var real_ball = ball_nodes.get(selected_cell)
+		if real_ball != null:
+			real_ball.visible = false
+		_preview_hidden_cell = selected_cell
 	add_move_preview_glow(target_cell)
 	for y in range(GRID_SIZE):
 		for x in range(GRID_SIZE):
@@ -543,8 +556,14 @@ func duplicate_board_state() -> Array:
 	return clone
 
 func clear_move_heat_preview() -> void:
-	if move_preview_nodes.is_empty() and not is_in_grid(move_preview_target):
+	if move_preview_nodes.is_empty() and not is_in_grid(move_preview_target) and not is_in_grid(_preview_hidden_cell):
 		return
+	# Restore the real ball that was hidden during preview
+	if is_in_grid(_preview_hidden_cell):
+		var hidden_ball = ball_nodes.get(_preview_hidden_cell)
+		if hidden_ball != null and is_instance_valid(hidden_ball):
+			hidden_ball.visible = true
+		_preview_hidden_cell = Vector2i(-1, -1)
 	clear_move_preview_nodes()
 	move_preview_target = Vector2i(-1, -1)
 	queue_redraw()
@@ -560,6 +579,10 @@ func complete_player_turn() -> void:
 	current_chain = 0
 	turn_index += 1
 	score += SURVIVAL_MOVE_SCORE
+	score_event.emit("survival", {
+		"amount": SURVIVAL_MOVE_SCORE,
+		"cell": _last_move_target,
+	})
 	print("Turn ", turn_index, ": player moved")
 	if chaos_mode_enabled:
 		await complete_chaos_turn()
@@ -617,11 +640,14 @@ func prepare_next_spawn_preview() -> void:
 
 func resolve_system_turn() -> void:
 	var did_anything := false
+
 	for cycle_index in range(MAX_SYSTEM_CYCLES):
+		# Phase 1: heat update
 		print("System cycle ", cycle_index + 1, ": Phase 1 heat update")
 		emit_status("Heating cycle " + str(cycle_index + 1))
 		var heat_updates: Array[Dictionary] = rules.compute_heat_updates(board_state, GRID_SIZE)
-		if not heat_updates.is_empty():
+		var had_heat_change := not heat_updates.is_empty()
+		if had_heat_change:
 			did_anything = true
 			await animate_heat_transfers(heat_updates)
 			apply_heat_updates(heat_updates, "Heat")
@@ -629,41 +655,82 @@ func resolve_system_turn() -> void:
 		else:
 			print("Phase 1: no heat changes")
 
-		print("System cycle ", cycle_index + 1, ": Phase 2 elimination check")
-		emit_status("Checking clusters")
-		var elimination_groups: Array[Dictionary] = rules.find_elimination_groups(board_state, GRID_SIZE)
-		if elimination_groups.is_empty():
+		# Phase 2+3: process elimination groups one at a time for proper chaining.
+		# Each group gets its own chain increment and aftershock,
+		# then we re-check for new/remaining groups before continuing.
+		var had_elimination := false
+
+		while true:
+			print("Phase 2: elimination check")
+			emit_status("Checking clusters")
+			var elimination_groups: Array[Dictionary] = rules.find_elimination_groups(board_state, GRID_SIZE)
+			if elimination_groups.is_empty():
+				break
+
+			had_elimination = true
+			did_anything = true
+
+			# Process first elimination group only — enables proper chain feel
+			var group: Dictionary = elimination_groups[0]
+			var group_heat: int = group["heat"]
+			var group_cells: Array = group["cells"]
+			var eliminated_cells: Array[Vector2i] = []
+			for c in group_cells:
+				eliminated_cells.append(c as Vector2i)
+
+			current_chain += 1
+			max_chain = maxi(max_chain, current_chain)
+			total_eliminated += eliminated_cells.size()
+
+			# Score: per-group base × per-chain multiplier
+			var group_base := eliminated_cells.size() * get_ball_clear_score(group_heat)
+			var chain_mult := get_chain_score_multiplier(current_chain)
+			score += group_base * chain_mult
+			log_elimination_groups([group])
+
+			# Emit score events for feedback
+			score_event.emit("clear", {
+				"heat": group_heat,
+				"cell_count": eliminated_cells.size(),
+				"base_score": group_base,
+				"cells": group_cells,
+			})
+			if current_chain >= 2:
+				score_event.emit("multiplier", {
+					"chain_depth": current_chain,
+					"multiplier": chain_mult,
+				})
+			emit_status("Chain " + str(current_chain) + ": cleared " + str(eliminated_cells.size()))
+			play_elimination_feedback(eliminated_cells)
+			await get_tree().create_timer(ELIMINATION_FEEDBACK_SECONDS).timeout
+			clear_cells(eliminated_cells)
+
+			# Phase 3: aftershock for this group only
+			print("Phase 3: aftershock")
+			emit_status("Aftershock")
+			var aftershock_updates: Array[Dictionary] = rules.compute_aftershock_updates(
+				board_state,
+				GRID_SIZE,
+				eliminated_cells
+			)
+			if not aftershock_updates.is_empty():
+				await animate_aftershock_transfers(eliminated_cells, aftershock_updates)
+				apply_heat_updates(aftershock_updates, "Aftershock")
+				await get_tree().create_timer(SYSTEM_PHASE_PAUSE_SECONDS).timeout
+			else:
+				print("Phase 3: no aftershock heat changes")
+
+			# Loop back: re-find groups (aftershock may have created new ones,
+			# or remaining original groups may still qualify)
+
+		# If no eliminations this cycle, system is resolved.
+		# Heat oscillation without elimination is irrelevant to gameplay.
+		if not had_elimination:
 			if did_anything:
 				print("System resolved after ", cycle_index + 1, " cycle(s)")
 			else:
 				print("System phase: no heat changes or eliminations")
 			return
-
-		did_anything = true
-		var eliminated_cells: Array[Vector2i] = rules.get_cells_from_groups(elimination_groups)
-		current_chain += 1
-		max_chain = maxi(max_chain, current_chain)
-		total_eliminated += eliminated_cells.size()
-		score += calculate_elimination_score(elimination_groups, current_chain)
-		log_elimination_groups(elimination_groups)
-		emit_status("Chain " + str(current_chain) + ": cleared " + str(eliminated_cells.size()))
-		play_elimination_feedback(eliminated_cells)
-		await get_tree().create_timer(ELIMINATION_FEEDBACK_SECONDS).timeout
-		clear_cells(eliminated_cells)
-
-		print("System cycle ", cycle_index + 1, ": Phase 3 aftershock")
-		emit_status("Aftershock")
-		var aftershock_updates: Array[Dictionary] = rules.compute_aftershock_updates(
-			board_state,
-			GRID_SIZE,
-			eliminated_cells
-		)
-		if aftershock_updates.is_empty():
-			print("Phase 3: no aftershock heat changes")
-		else:
-			await animate_aftershock_transfers(eliminated_cells, aftershock_updates)
-			apply_heat_updates(aftershock_updates, "Aftershock")
-			await get_tree().create_timer(SYSTEM_PHASE_PAUSE_SECONDS).timeout
 
 	print("System phase stopped after max cycle limit: ", MAX_SYSTEM_CYCLES)
 
@@ -793,14 +860,6 @@ func log_elimination_groups(elimination_groups: Array[Dictionary]) -> void:
 			cells
 		)
 
-func calculate_elimination_score(elimination_groups: Array[Dictionary], chain_depth: int) -> int:
-	var base_score := 0
-	for group in elimination_groups:
-		var heat: int = group["heat"]
-		var cells: Array = group["cells"]
-		base_score += cells.size() * get_ball_clear_score(heat)
-	return base_score * get_chain_score_multiplier(chain_depth)
-
 func get_ball_clear_score(heat: int) -> int:
 	return CLEAR_BASE_SCORE + CLEAR_HEAT_SCORE * heat
 
@@ -898,6 +957,8 @@ func load_debug_board(board_name: String) -> void:
 		place_debug_cascade_board()
 	elif board_name == "blocked":
 		place_debug_blocked_board()
+	elif board_name == "chain":
+		place_debug_chain_board()
 	else:
 		place_test_balls()
 
@@ -920,6 +981,7 @@ func reset_runtime_state() -> void:
 	hovered_cell = Vector2i(-1, -1)
 	preview_path.clear()
 	clear_move_heat_preview()
+	_last_move_target = Vector2i(-1, -1)
 	total_eliminated = 0
 	score = 0
 	current_chain = 0
@@ -946,6 +1008,38 @@ func place_debug_cascade_board() -> void:
 	set_ball(Vector2i(1, 3), 4)
 	set_ball(Vector2i(3, 3), 4)
 	set_ball(Vector2i(7, 7), 2)
+
+func place_debug_chain_board() -> void:
+	# Multi-chain test board: 2-chain cascade with large elimination groups.
+	# Row 0: heat 5 (5 balls) → chain 1 (threshold 3)
+	# Row 1: heat 3 (5 balls) → Phase 1 raises to 4, aftershock to 5 → chain 2
+	# Row 2: heat 1 (5 balls) → aftershock → heat 3, chain 2 collateral
+	# Row 3: heat 1 (7 balls) → chain 1 collateral (threshold 7)
+	# Corners: movable balls for the player
+	set_ball(Vector2i(2, 0), 5)
+	set_ball(Vector2i(3, 0), 5)
+	set_ball(Vector2i(4, 0), 5)
+	set_ball(Vector2i(5, 0), 5)
+	set_ball(Vector2i(6, 0), 5)
+	set_ball(Vector2i(2, 1), 3)
+	set_ball(Vector2i(3, 1), 3)
+	set_ball(Vector2i(4, 1), 3)
+	set_ball(Vector2i(5, 1), 3)
+	set_ball(Vector2i(6, 1), 3)
+	set_ball(Vector2i(2, 2), 1)
+	set_ball(Vector2i(3, 2), 1)
+	set_ball(Vector2i(4, 2), 1)
+	set_ball(Vector2i(5, 2), 1)
+	set_ball(Vector2i(6, 2), 1)
+	set_ball(Vector2i(1, 3), 1)
+	set_ball(Vector2i(2, 3), 1)
+	set_ball(Vector2i(3, 3), 1)
+	set_ball(Vector2i(4, 3), 1)
+	set_ball(Vector2i(5, 3), 1)
+	set_ball(Vector2i(6, 3), 1)
+	set_ball(Vector2i(7, 3), 1)
+	set_ball(Vector2i(0, 8), 5)
+	set_ball(Vector2i(8, 8), 4)
 
 func place_debug_blocked_board() -> void:
 	for x in range(GRID_SIZE):
