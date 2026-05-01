@@ -1,0 +1,133 @@
+[gd_scene load_steps=2 format=3 uid="uid://hudheatomzie01"]
+
+[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1_hud"]
+
+[node name="HUD" type="CanvasLayer"]
+script = ExtResource("1_hud")
+
+[node name="Panel" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+offset_left = 788.0
+offset_top = 30.0
+offset_right = 1168.0
+offset_bottom = 590.0
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 18
+
+[node name="VBox" type="VBoxContainer" parent="Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="TitleLabel" type="Label" parent="Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 28
+theme_override_colors/font_color = Color(1, 0.82, 0.35, 1)
+text = "heATomzie"
+
+[node name="StateLabel" type="Label" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(1, 0.886275, 0.509804, 1)
+text = "Ready"
+
+[node name="StatsGrid" type="GridContainer" parent="Panel/Margin/VBox"]
+layout_mode = 2
+columns = 2
+
+[node name="TurnLabel" type="Label" parent="Panel/Margin/VBox/StatsGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Turn  0"
+
+[node name="BallsLabel" type="Label" parent="Panel/Margin/VBox/StatsGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Balls  0"
+
+[node name="ScoreLabel" type="Label" parent="Panel/Margin/VBox/StatsGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Score  0"
+
+[node name="ClearedLabel" type="Label" parent="Panel/Margin/VBox/StatsGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Cleared  0"
+
+[node name="ChainLabel" type="Label" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Chain  0 / Best 0"
+
+[node name="NextLabel" type="Label" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(1, 0.82, 0.35, 1)
+text = "Next  1  2  3"
+
+[node name="NextPreviewBar" type="HBoxContainer" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Separator" type="HSeparator" parent="Panel/Margin/VBox"]
+layout_mode = 2
+
+[node name="SettingsLabel" type="Label" parent="Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(1, 0.82, 0.35, 1)
+text = "Settings"
+
+[node name="ShowHeatToggle" type="CheckButton" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+button_pressed = true
+text = "Show heat labels"
+
+[node name="MovePreviewToggle" type="CheckButton" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+button_pressed = true
+text = "Right-click heat preview"
+
+[node name="ChaosModeToggle" type="CheckButton" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Chaos mode"
+
+[node name="RestartButton" type="Button" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Restart"
+
+[node name="RulesButton" type="Button" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Rules"
+
+[node name="DebugRow" type="HBoxContainer" parent="Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="CascadeButton" type="Button" parent="Panel/Margin/VBox/DebugRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Cascade"
+
+[node name="BlockedButton" type="Button" parent="Panel/Margin/VBox/DebugRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Blocked"

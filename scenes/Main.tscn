@@ -1,10 +1,12 @@
-[gd_scene format=3 uid="uid://dfeq0p4of7hm7"]
+[gd_scene load_steps=4 format=3 uid="uid://dfeq0p4of7hm7"]
 
-[ext_resource type="Script" uid="uid://d0squwtinvola" path="res://scripts/core/main.gd" id="1_v74f3"]
-[ext_resource type="Script" uid="uid://doradqt2tixer" path="res://scripts/board/board.gd" id="2_rvslj"]
+[ext_resource type="Script" uid="uid://d0squwtinvola" path="res://scripts/core/main.gd" id="1_main"]
+[ext_resource type="PackedScene" path="res://scenes/board/Board.tscn" id="2_board"]
+[ext_resource type="PackedScene" path="res://scenes/ui/HUD.tscn" id="3_hud"]
 
 [node name="Main" type="Node2D" unique_id=1355666556]
-script = ExtResource("1_v74f3")
+script = ExtResource("1_main")
 
-[node name="Board" type="Node2D" parent="." unique_id=1059097404]
-script = ExtResource("2_rvslj")
+[node name="Board" parent="." instance=ExtResource("2_board")]
+
+[node name="HUD" parent="." instance=ExtResource("3_hud")]
