@@ -688,14 +688,21 @@ func resolve_system_turn() -> void:
 			score += group_base * chain_mult
 			log_elimination_groups([group])
 
-			# Emit score events for feedback
+			# Emit score events for feedback — per-ball data for visual pipeline
+			var balls_data: Array[Dictionary] = []
+			for c in eliminated_cells:
+				balls_data.append({
+					"cell": c,
+					"heat": group_heat,
+					"base_score": get_ball_clear_score(group_heat),
+				})
 			var final_score: int = group_base * chain_mult
 			score_event.emit("clear", {
 				"heat": group_heat,
-				"cell_count": eliminated_cells.size(),
-				"base_score": group_base,
+				"chain_depth": current_chain,
+				"multiplier": chain_mult,
+				"balls": balls_data,
 				"final_score": final_score,
-				"cells": group_cells,
 			})
 			if current_chain >= 2:
 				score_event.emit("multiplier", {
