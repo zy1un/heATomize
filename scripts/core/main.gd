@@ -13,5 +13,5 @@ func _ready() -> void:
 	hud.show_heat_labels_changed.connect(board.set_show_heat_labels)
 	hud.move_preview_changed.connect(board.set_move_preview_enabled)
 	hud.chaos_mode_changed.connect(board.set_chaos_mode_enabled)
-	score_feedback.setup(board)
+	score_feedback.setup(board, hud)
 	board.emit_status("Ready")

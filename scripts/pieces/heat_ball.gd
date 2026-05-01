@@ -10,6 +10,7 @@ extends Node2D
 
 @onready var visual: ColorRect = $Visual
 @onready var heat_label: Label = %HeatLabel
+var pixel_font: FontFile
 var shader_material: ShaderMaterial
 var feedback_tween: Tween
 
@@ -22,6 +23,10 @@ var pulse_time := 0.0
 
 
 func _ready() -> void:
+	pixel_font = FontFile.new()
+	pixel_font.load_dynamic_font("res://assets/fonts/PressStart2P-Regular.ttf")
+	heat_label.add_theme_font_override("font", pixel_font)
+	heat_label.add_theme_font_size_override("font_size", 20)
 	ensure_unique_material()
 	update_visual_scale()
 	set_process(true)
@@ -89,6 +94,7 @@ func play_elimination_feedback() -> void:
 	stop_feedback()
 	is_feedback_active = true
 	apply_colors(Color.WHITE, Color(1.0, 0.25, 0.1, 1.0))
+	spawn_elimination_shockwave()
 	spawn_pixel_fragments()
 
 	feedback_tween = create_tween()
@@ -189,3 +195,45 @@ func spawn_pixel_fragments() -> void:
 		tween.tween_property(fragment, "rotation", fragment.rotation + randf_range(-1.4, 1.4), fragment_duration)
 		tween.tween_property(fragment, "modulate:a", 0.0, fragment_duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 		tween.finished.connect(fragment.queue_free)
+
+func spawn_elimination_shockwave() -> void:
+	var parent_node := get_parent()
+	if parent_node == null:
+		return
+
+	var ring_count := 2
+	for ring_index in range(ring_count):
+		var ring := ColorRect.new()
+		var ring_size := radius * (2.0 + float(ring_index) * 0.22)
+		ring.size = Vector2(ring_size, ring_size)
+		ring.pivot_offset = ring.size * 0.5
+		ring.position = position - ring.pivot_offset
+		ring.color = Color(1.0, 0.48 - float(ring_index) * 0.12, 0.12, 0.0)
+		parent_node.add_child(ring)
+
+		var ring_style := StyleBoxFlat.new()
+		ring_style.bg_color = Color.TRANSPARENT
+		ring_style.border_color = base_fill_color.lerp(Color.WHITE, 0.45)
+		ring_style.set_border_width_all(3 - ring_index)
+		var corner_radius := int(ring_size * 0.5)
+		ring_style.corner_radius_top_left = corner_radius
+		ring_style.corner_radius_top_right = corner_radius
+		ring_style.corner_radius_bottom_left = corner_radius
+		ring_style.corner_radius_bottom_right = corner_radius
+
+		var panel := Panel.new()
+		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.size = ring.size
+		panel.add_theme_stylebox_override("panel", ring_style)
+		ring.add_child(panel)
+		ring.modulate.a = 0.82 - float(ring_index) * 0.22
+		ring.scale = Vector2.ONE * (0.38 + float(ring_index) * 0.12)
+
+		var delay := float(ring_index) * 0.045
+		var duration := elimination_seconds * (0.42 + float(ring_index) * 0.08)
+		var tween := create_tween()
+		tween.tween_interval(delay)
+		tween.set_parallel(true)
+		tween.tween_property(ring, "scale", Vector2.ONE * (1.65 + float(ring_index) * 0.28), duration).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+		tween.tween_property(ring, "modulate:a", 0.0, duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		tween.chain().tween_callback(ring.queue_free)

@@ -2,6 +2,7 @@ extends Node2D
 
 signal status_changed(snapshot: Dictionary)
 signal score_event(event_type: String, data: Dictionary)
+signal score_feedback_completed(event_id: int)
 
 const BoardPathfinding = preload("res://scripts/board/board_pathfinding.gd")
 const BoardRules = preload("res://scripts/board/board_rules.gd")
@@ -81,12 +82,15 @@ var total_eliminated: int = 0
 var score: int = 0
 var current_chain: int = 0
 var max_chain: int = 0
+var next_score_event_id: int = 1
+var completed_score_event_ids: Dictionary = {}
 var next_spawn_heats: Array[int] = []
 var game_over := false
 var is_busy := false
 var show_heat_labels := true
 var move_preview_enabled := true
 var chaos_mode_enabled := false
+var score_feedback_sync_enabled := false
 var move_preview_target := Vector2i(-1, -1)
 var move_preview_nodes: Array[Node] = []
 var _preview_hidden_cell := Vector2i(-1, -1)
@@ -582,6 +586,7 @@ func complete_player_turn() -> void:
 	score_event.emit("survival", {
 		"amount": SURVIVAL_MOVE_SCORE,
 		"cell": _last_move_target,
+		"target_score": score,
 	})
 	print("Turn ", turn_index, ": player moved")
 	if chaos_mode_enabled:
@@ -687,6 +692,8 @@ func resolve_system_turn() -> void:
 			var chain_mult := get_chain_score_multiplier(current_chain)
 			score += group_base * chain_mult
 			log_elimination_groups([group])
+			var score_event_id := next_score_event_id
+			next_score_event_id += 1
 
 			# Emit score events for feedback — per-ball data for visual pipeline
 			var balls_data: Array[Dictionary] = []
@@ -703,16 +710,14 @@ func resolve_system_turn() -> void:
 				"multiplier": chain_mult,
 				"balls": balls_data,
 				"final_score": final_score,
+				"target_score": score,
+				"event_id": score_event_id,
 			})
-			if current_chain >= 2:
-				score_event.emit("multiplier", {
-					"chain_depth": current_chain,
-					"multiplier": chain_mult,
-				})
 			emit_status("Chain " + str(current_chain) + ": cleared " + str(eliminated_cells.size()))
 			play_elimination_feedback(eliminated_cells)
 			await get_tree().create_timer(ELIMINATION_FEEDBACK_SECONDS).timeout
 			clear_cells(eliminated_cells)
+			await wait_for_score_feedback(score_event_id)
 
 			# Phase 3: aftershock for this group only
 			print("Phase 3: aftershock")
@@ -878,6 +883,26 @@ func get_chain_score_multiplier(chain_depth: int) -> int:
 		multiplier *= 2
 	return multiplier
 
+func notify_score_feedback_complete(event_id: int) -> void:
+	completed_score_event_ids[event_id] = true
+	score_feedback_completed.emit(event_id)
+
+func register_score_feedback_sync() -> void:
+	score_feedback_sync_enabled = true
+
+func wait_for_score_feedback(event_id: int) -> void:
+	if not score_feedback_sync_enabled:
+		return
+	if completed_score_event_ids.has(event_id):
+		completed_score_event_ids.erase(event_id)
+		return
+
+	while true:
+		var completed_event_id: int = await score_feedback_completed
+		if completed_event_id == event_id:
+			completed_score_event_ids.erase(event_id)
+			return
+
 func clear_cells(cells: Array[Vector2i]) -> void:
 	for cell in cells:
 		if cell == selected_cell:
@@ -995,6 +1020,8 @@ func reset_runtime_state() -> void:
 	score = 0
 	current_chain = 0
 	max_chain = 0
+	next_score_event_id = 1
+	completed_score_event_ids.clear()
 	next_spawn_heats.clear()
 	turn_index = 0
 	game_over = false

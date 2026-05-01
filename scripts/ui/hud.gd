@@ -6,6 +6,12 @@ signal show_heat_labels_changed(enabled: bool)
 signal move_preview_changed(enabled: bool)
 signal chaos_mode_changed(enabled: bool)
 
+var PIXEL_FONT: FontFile
+
+func _init() -> void:
+	PIXEL_FONT = FontFile.new()
+	PIXEL_FONT.load_dynamic_font("res://assets/fonts/PressStart2P-Regular.ttf")
+
 const PREVIEW_COLORS := {
 	1: Color8(201, 205, 209),
 	2: Color8(141, 35, 28),
@@ -20,9 +26,32 @@ const PREVIEW_OUTLINES := {
 	4: Color8(94, 46, 0),
 	5: Color8(255, 76, 32),
 }
+const SCOREBOARD_BASE_COLOR := Color8(13, 12, 11, 248)
+const SCOREBOARD_BORDER_COLOR := Color8(255, 143, 34, 190)
+const SCOREBOARD_TEXT_COLOR := Color8(255, 174, 54)
+const SCOREBOARD_GLOW_COLOR := Color8(255, 96, 24, 145)
+const SCOREBOARD_OUTLINE_COLOR := Color8(74, 24, 2)
+const SCOREBOARD_HEAT_COLORS := {
+	1: Color8(180, 196, 210),
+	2: Color8(230, 60, 40),
+	3: Color8(255, 130, 30),
+	4: Color8(255, 210, 50),
+	5: Color8(255, 255, 240),
+}
+const SCOREBOARD_HEAT_OUTLINES := {
+	1: Color8(30, 36, 50),
+	2: Color8(80, 10, 5),
+	3: Color8(110, 40, 0),
+	4: Color8(90, 60, 0),
+	5: Color8(180, 50, 20),
+}
 
 @onready var turn_label: Label = %TurnLabel
 @onready var balls_label: Label = %BallsLabel
+@onready var score_panel: PanelContainer = %ScorePanel
+@onready var score_caption: Label = %ScoreCaption
+@onready var score_readout: Control = %ScoreReadout
+@onready var score_glow_label: Label = %ScoreGlowLabel
 @onready var score_label: Label = %ScoreLabel
 @onready var cleared_label: Label = %ClearedLabel
 @onready var chain_label: Label = %ChainLabel
@@ -35,11 +64,17 @@ const PREVIEW_OUTLINES := {
 @onready var show_heat_toggle: CheckButton = %ShowHeatToggle
 @onready var move_preview_toggle: CheckButton = %MovePreviewToggle
 @onready var chaos_mode_toggle: CheckButton = %ChaosModeToggle
+@onready var preset_panel: PanelContainer = %PresetPanel
 @onready var preset_button: MenuButton = %PresetButton
 
 var rules_overlay: Control
 var rules_panel: PanelContainer
 var rules_close_button: Button
+var displayed_score: int = 0
+var actual_score: int = 0
+var score_tween: Tween
+var score_flash_tween: Tween
+var score_scanline_nodes: Array[ColorRect] = []
 
 
 func _ready() -> void:
@@ -50,6 +85,8 @@ func _ready() -> void:
 	apply_toggle_style(show_heat_toggle)
 	apply_toggle_style(move_preview_toggle)
 	apply_toggle_style(chaos_mode_toggle)
+	apply_score_label_style()
+	apply_preset_panel_style()
 
 	restart_button.pressed.connect(func() -> void: restart_requested.emit())
 	rules_button.pressed.connect(show_rules_overlay)
@@ -71,7 +108,10 @@ func _ready() -> void:
 func update_status(snapshot: Dictionary) -> void:
 	turn_label.text = "Turn  " + str(snapshot.get("turn", 0))
 	balls_label.text = "Balls  " + str(snapshot.get("balls", 0))
-	score_label.text = "Score  " + str(snapshot.get("score", 0))
+	var incoming_score := int(snapshot.get("score", 0))
+	actual_score = incoming_score
+	if incoming_score <= displayed_score or incoming_score == 0:
+		set_displayed_score(incoming_score)
 	cleared_label.text = "Cleared  " + str(snapshot.get("cleared", 0))
 	chain_label.text = "Chain  " + str(snapshot.get("chain", 0)) + " / Best " + str(snapshot.get("max_chain", 0))
 	next_label.text = "Next"
@@ -82,6 +122,77 @@ func update_status(snapshot: Dictionary) -> void:
 		state_label.add_theme_color_override("font_color", Color8(255, 106, 78))
 	else:
 		state_label.add_theme_color_override("font_color", Color8(255, 226, 130))
+
+
+func set_displayed_score(value: int) -> void:
+	displayed_score = value
+	var text := str(displayed_score).pad_zeros(6)
+	score_label.text = text
+	score_glow_label.text = text
+
+
+func get_score_target_position() -> Vector2:
+	var rect := score_panel.get_global_rect()
+	return rect.position + rect.size * 0.5
+
+
+func inject_score_to(target_score: int, heat: int, intensity: int = 1) -> void:
+	actual_score = max(actual_score, target_score)
+	var target: int = maxi(displayed_score, target_score)
+	animate_score_to(target, heat, intensity)
+
+
+func animate_score_to(target_score: int, heat: int, intensity: int = 1) -> void:
+	if score_tween != null and score_tween.is_valid():
+		score_tween.kill()
+
+	var start_score: int = displayed_score
+	var score_delta: int = maxi(1, target_score - start_score)
+	var duration: float = clampf(0.18 + float(score_delta) / 260.0, 0.22, 0.8)
+	var driver: Tween = create_tween()
+	score_tween = driver
+	score_panel.pivot_offset = score_panel.size * 0.5
+	driver.tween_method(
+		func(value: float) -> void:
+			set_displayed_score(int(round(value))),
+		float(start_score),
+		float(target_score),
+		duration
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	driver.parallel().tween_property(
+		score_panel,
+		"scale",
+		Vector2.ONE * (1.0 + 0.025 * float(clampi(intensity, 1, 4))),
+		0.09
+	).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	driver.tween_property(score_panel, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	flash_scoreboard(heat, intensity)
+
+
+func flash_scoreboard(heat: int, intensity: int = 1) -> void:
+	if score_flash_tween != null and score_flash_tween.is_valid():
+		score_flash_tween.kill()
+
+	var flash_color: Color = SCOREBOARD_HEAT_COLORS.get(heat, SCOREBOARD_TEXT_COLOR)
+	var outline_color: Color = SCOREBOARD_HEAT_OUTLINES.get(heat, SCOREBOARD_OUTLINE_COLOR)
+	var style := make_score_panel_style(
+		SCOREBOARD_BASE_COLOR.lerp(flash_color, 0.16),
+		flash_color,
+		2 + clampi(intensity, 1, 4)
+	)
+	score_panel.add_theme_stylebox_override("panel", style)
+	score_label.add_theme_color_override("font_color", flash_color)
+	score_label.add_theme_color_override("font_outline_color", outline_color)
+	score_label.add_theme_constant_override("outline_size", 2 + clampi(intensity, 1, 4))
+	score_glow_label.add_theme_color_override("font_color", flash_color)
+	score_glow_label.add_theme_color_override("font_outline_color", flash_color)
+	score_glow_label.modulate.a = 0.72
+
+	score_flash_tween = create_tween()
+	score_flash_tween.tween_interval(0.18 + 0.05 * float(clampi(intensity, 1, 4)))
+	score_flash_tween.tween_callback(func() -> void:
+		apply_score_panel_style()
+	)
 
 
 func update_next_preview(next_heats: Variant) -> void:
@@ -131,6 +242,37 @@ func apply_panel_style() -> void:
 	panel.add_theme_stylebox_override("panel", panel_style)
 
 
+func make_score_panel_style(bg_color: Color, border_color: Color, border_width: int) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = bg_color
+	style.border_color = border_color
+	style.set_border_width_all(border_width)
+	style.corner_radius_top_left = 6
+	style.corner_radius_top_right = 6
+	style.corner_radius_bottom_left = 6
+	style.corner_radius_bottom_right = 6
+	style.shadow_color = Color(border_color.r, border_color.g, border_color.b, 0.30)
+	style.shadow_size = 12 + border_width * 2
+	style.shadow_offset = Vector2.ZERO
+	style.content_margin_left = 0
+	style.content_margin_right = 0
+	return style
+
+
+func apply_score_panel_style() -> void:
+	score_panel.add_theme_stylebox_override(
+		"panel",
+		make_score_panel_style(SCOREBOARD_BASE_COLOR, SCOREBOARD_BORDER_COLOR, 2)
+	)
+	score_label.add_theme_color_override("font_color", SCOREBOARD_TEXT_COLOR)
+	score_label.add_theme_color_override("font_outline_color", SCOREBOARD_OUTLINE_COLOR)
+	score_label.add_theme_constant_override("outline_size", 2)
+	score_glow_label.add_theme_color_override("font_color", SCOREBOARD_GLOW_COLOR)
+	score_glow_label.add_theme_color_override("font_outline_color", SCOREBOARD_GLOW_COLOR)
+	score_glow_label.add_theme_constant_override("outline_size", 8)
+	score_glow_label.modulate.a = 0.46
+
+
 func apply_button_style(button: Button) -> void:
 	var normal_style := StyleBoxFlat.new()
 	normal_style.bg_color = Color8(72, 62, 48)
@@ -154,8 +296,68 @@ func apply_toggle_style(toggle: CheckButton) -> void:
 	toggle.add_theme_font_size_override("font_size", 15)
 
 
+func apply_score_label_style() -> void:
+	score_panel.custom_minimum_size = Vector2(0, 86)
+	score_readout.custom_minimum_size = Vector2(260, 42)
+	score_caption.add_theme_font_override("font", PIXEL_FONT)
+	score_caption.add_theme_font_size_override("font_size", 10)
+	score_caption.add_theme_color_override("font_color", Color8(255, 154, 42))
+	score_label.add_theme_font_override("font", PIXEL_FONT)
+	score_glow_label.add_theme_font_override("font", PIXEL_FONT)
+	score_label.add_theme_font_size_override("font_size", 26)
+	score_glow_label.add_theme_font_size_override("font_size", 26)
+	score_label.custom_minimum_size = Vector2(260, 42)
+	score_glow_label.custom_minimum_size = Vector2(260, 42)
+	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	score_glow_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	score_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	score_glow_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	apply_score_panel_style()
+	score_panel.scale = Vector2.ONE
+	score_label.scale = Vector2.ONE
+	score_glow_label.scale = Vector2.ONE
+	build_score_scanlines()
+	set_displayed_score(displayed_score)
+
+
+func build_score_scanlines() -> void:
+	for line in score_scanline_nodes:
+		if is_instance_valid(line):
+			line.queue_free()
+	score_scanline_nodes.clear()
+
+	var readout_height := 42
+	for index in range(0, readout_height, 6):
+		var scanline := ColorRect.new()
+		scanline.name = "ScoreScanline"
+		scanline.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		scanline.color = Color8(255, 118, 28, 34)
+		scanline.anchor_left = 0.0
+		scanline.anchor_right = 1.0
+		scanline.anchor_top = 0.0
+		scanline.anchor_bottom = 0.0
+		scanline.offset_left = 0.0
+		scanline.offset_right = 0.0
+		scanline.offset_top = float(index)
+		scanline.offset_bottom = float(index + 1)
+		score_readout.add_child(scanline)
+		score_scanline_nodes.append(scanline)
+
+
 func apply_menu_button_style(menu_btn: MenuButton) -> void:
 	apply_button_style(menu_btn)
+
+
+func apply_preset_panel_style() -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color8(28, 25, 22, 210)
+	style.border_color = Color8(176, 128, 58, 145)
+	style.set_border_width_all(1)
+	style.corner_radius_top_left = 6
+	style.corner_radius_top_right = 6
+	style.corner_radius_bottom_left = 6
+	style.corner_radius_bottom_right = 6
+	preset_panel.add_theme_stylebox_override("panel", style)
 
 
 func apply_popup_style(popup: PopupMenu) -> void:
