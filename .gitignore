@@ -19,3 +19,7 @@ Thumbs.db
 *.log
 .vscode/
 
+AGENTS.md
+todo.md
+docs/design/score-game-feel-implementation-plan.md
+
