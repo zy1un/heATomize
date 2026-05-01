@@ -49,13 +49,15 @@ const MULTIPLIER_FILL := Color8(255, 230, 60)
 const MULTIPLIER_OUTLINE := Color8(100, 50, 0)
 
 # ── Timing ─────────────────────────────────────────────────
-const BALL_STAGGER_SECONDS := 0.03    # delay between each ball's popup
-const BASE_SCORE_HOLD_SECONDS := 0.5  # how long base scores stay before fade/particle
-const FADE_OUT_SECONDS := 0.18        # base score fade-out duration
+const BALL_STAGGER_SECONDS := 0.06    # delay between each ball's popup
+const BASE_SCORE_HOLD_SECONDS := 0.8  # how long base scores stay before fade/particle
+const FADE_OUT_SECONDS := 0.25        # base score fade-out duration
+const REVEAL_PAUSE_SECONDS := 0.15    # pause between base fade-out and multiplied pop-in ("揭晓"感)
 const POP_IN_SCALE_OVERSHOOT := 1.3
-const POP_IN_DURATION := 0.12
-const POP_IN_SETTLE_DURATION := 0.06
-const MULTIPLIED_HOLD_SECONDS := 0.4  # how long multiplied scores stay before particle
+const POP_IN_DURATION := 0.20
+const POP_IN_SETTLE_DURATION := 0.10
+const MULTIPLIED_HOLD_SECONDS := 0.9  # how long multiplied scores stay before particle
+const MULTIPLIER_BANNER_DURATION := 2.0
 
 var _board: Node2D
 var _feedback_layer: Control
@@ -166,7 +168,7 @@ func _show_multiplier(data: Dictionary) -> void:
 	var font_size: int = MULTIPLIER_BASE_FONT_SIZE + mini(chain_depth - 2, 6) * MULTIPLIER_FONT_STEP
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
 	var center: Vector2 = viewport_size * 0.5
-	_spawn_bouncing_text(text, center, MULTIPLIER_FILL, MULTIPLIER_OUTLINE, font_size, 1.5)
+	_spawn_bouncing_text(text, center, MULTIPLIER_FILL, MULTIPLIER_OUTLINE, font_size, MULTIPLIER_BANNER_DURATION)
 
 	# Trigger base → multiplied transition for the most recent clear event
 	if _pending_multiplier_labels.is_empty():
@@ -185,8 +187,8 @@ func _show_multiplier(data: Dictionary) -> void:
 		tween.tween_property(label, "modulate:a", 0.0, FADE_OUT_SECONDS).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 		tween.tween_callback(label.queue_free)
 
-	# Spawn multiplied scores with stagger (after fade-out completes)
-	var fade_delay := FADE_OUT_SECONDS + 0.05  # tiny gap for readability
+	# Spawn multiplied scores with stagger (after fade-out + reveal pause)
+	var fade_delay := FADE_OUT_SECONDS + REVEAL_PAUSE_SECONDS
 	for index in range(balls.size()):
 		var ball_data: Dictionary = balls[index]
 		var cell: Vector2i = ball_data.get("cell", Vector2i(-1, -1))
@@ -276,10 +278,10 @@ func _spawn_bouncing_text(
 
 	var tween: Tween = label.create_tween()
 	# Slam in with overshoot — punchy
-	tween.tween_property(label, "scale", Vector2.ONE * 1.25, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(label, "scale", Vector2.ONE * 1.0, 0.07).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(label, "scale", Vector2.ONE * 1.25, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(label, "scale", Vector2.ONE * 1.0, 0.09).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 	# Hold then drift up and fade
-	tween.tween_interval(duration * 0.4)
+	tween.tween_interval(duration * 0.45)
 	tween.set_parallel(true)
 	tween.tween_property(label, "modulate:a", 0.0, duration * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tween.tween_property(label, "position:y", label.position.y - 30, duration * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
@@ -305,9 +307,9 @@ func _spawn_per_ball_score(
 	var tween: Tween = label.create_tween()
 	tween.tween_interval(stagger_delay)
 	tween.set_parallel(true)
-	tween.tween_property(label, "scale", Vector2.ONE * 1.15, 0.10).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(label, "modulate:a", 1.0, 0.06).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.chain().tween_property(label, "scale", Vector2.ONE, 0.05).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(label, "scale", Vector2.ONE * 1.15, POP_IN_DURATION).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(label, "modulate:a", 1.0, POP_IN_DURATION * 0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.chain().tween_property(label, "scale", Vector2.ONE, POP_IN_SETTLE_DURATION).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 
 	return label
 
