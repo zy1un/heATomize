@@ -1,4 +1,7 @@
 .godot/
+.workbuddy/
+
+# WorkBuddy agent data
 
 # Godot export outputs
 /build/
