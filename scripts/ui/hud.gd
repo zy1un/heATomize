@@ -6,11 +6,7 @@ signal show_heat_labels_changed(enabled: bool)
 signal move_preview_changed(enabled: bool)
 signal chaos_mode_changed(enabled: bool)
 
-var PIXEL_FONT: FontFile
-
-func _init() -> void:
-	PIXEL_FONT = FontFile.new()
-	PIXEL_FONT.load_dynamic_font("res://assets/fonts/PressStart2P-Regular.ttf")
+const PIXEL_FONT: FontFile = preload("res://assets/fonts/PressStart2P-Regular.ttf")
 
 const PREVIEW_COLORS := {
 	1: Color8(201, 205, 209),

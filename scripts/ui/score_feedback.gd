@@ -3,11 +3,7 @@ extends CanvasLayer
 ## Visual score pipeline. Gameplay score is owned by board.gd; this layer only
 ## stages score events, multiplier impact, particles, and scoreboard injection.
 
-var PIXEL_FONT: FontFile
-
-func _init() -> void:
-	PIXEL_FONT = FontFile.new()
-	PIXEL_FONT.load_dynamic_font("res://assets/fonts/PressStart2P-Regular.ttf")
+const PIXEL_FONT: FontFile = preload("res://assets/fonts/PressStart2P-Regular.ttf")
 
 
 const SURVIVAL_FONT_SIZE := 32

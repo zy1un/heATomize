@@ -8,9 +8,10 @@ extends Node2D
 @export var aftershock_seconds: float = 0.64
 @export var elimination_seconds: float = 0.72
 
+const PIXEL_FONT: FontFile = preload("res://assets/fonts/PressStart2P-Regular.ttf")
+
 @onready var visual: ColorRect = $Visual
 @onready var heat_label: Label = %HeatLabel
-var pixel_font: FontFile
 var shader_material: ShaderMaterial
 var feedback_tween: Tween
 
@@ -23,9 +24,7 @@ var pulse_time := 0.0
 
 
 func _ready() -> void:
-	pixel_font = FontFile.new()
-	pixel_font.load_dynamic_font("res://assets/fonts/PressStart2P-Regular.ttf")
-	heat_label.add_theme_font_override("font", pixel_font)
+	heat_label.add_theme_font_override("font", PIXEL_FONT)
 	heat_label.add_theme_font_size_override("font_size", 20)
 	ensure_unique_material()
 	update_visual_scale()

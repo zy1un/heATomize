@@ -6,6 +6,7 @@
 # Godot export outputs
 /build/
 /exports/
+/release/
 
 # Mono / C# artifacts if added later
 /.mono/
