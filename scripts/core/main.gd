@@ -6,7 +6,7 @@ extends Node2D
 
 
 func _ready() -> void:
-	print("heATomzie booted.")
+	print("heATomize booted.")
 	board.status_changed.connect(hud.update_status)
 	hud.restart_requested.connect(board.restart_game)
 	hud.debug_board_requested.connect(board.load_debug_board)

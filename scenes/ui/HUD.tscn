@@ -27,7 +27,7 @@ theme_override_constants/separation = 12
 layout_mode = 2
 theme_override_font_sizes/font_size = 28
 theme_override_colors/font_color = Color(1, 0.82, 0.35, 1)
-text = "heATomzie"
+text = "heATomize"
 
 [node name="StateLabel" type="Label" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true

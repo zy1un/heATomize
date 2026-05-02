@@ -1,4 +1,4 @@
-# heATomzie
+# heATomize
 
 Godot 4.6 prototype for a heat-driven cluster elimination puzzle game.
 
