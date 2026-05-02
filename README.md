@@ -1,4 +1,4 @@
-# heATomize
+﻿# heATomize
 
 Godot 4.6 prototype for a heat-driven cluster elimination puzzle game.
 
@@ -48,7 +48,7 @@ Use the console executable for headless tests and agent automation because it re
 Open the project in Godot, or run the main scene from the command line:
 
 ```powershell
-& "D:\program\tools\godot\Godot_v4.6.1-stable_win64.exe" --path "D:\program\heATomzie"
+& "D:\program\tools\godot\Godot_v4.6.1-stable_win64.exe" --path "D:\program\heATomize"
 ```
 
 ## Test
@@ -62,7 +62,7 @@ Run the smoke tests:
 This currently runs board-rule, turn-planning, and animation smoke tests. To call the board-rule test directly:
 
 ```powershell
-& "D:\program\tools\godot\Godot_v4.6.1-stable_win64_console.exe" --headless --log-file "D:\program\heATomzie\.godot\agent-logs\board_rules_smoke_test.log" --path "D:\program\heATomzie" --script res://scripts/tests/board_rules_smoke_test.gd
+& "D:\program\tools\godot\Godot_v4.6.1-stable_win64_console.exe" --headless --log-file "D:\program\heATomize\.godot\agent-logs\board_rules_smoke_test.log" --path "D:\program\heATomize" --script res://scripts/tests/board_rules_smoke_test.gd
 ```
 
 The helper script writes Godot logs under `.godot/agent-logs/` so headless runs do not depend on the default user log directory.
