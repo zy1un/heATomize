@@ -30,6 +30,8 @@ const SPAWN_STAGGER_SECONDS := 0.09
 const HEAT_TRANSFER_SECONDS := 0.48
 const AFTERSHOCK_TRANSFER_SECONDS := 0.54
 const TRANSFER_STAGGER_SECONDS := 0.035
+const SCORE_FEEDBACK_TIMEOUT_SECONDS := 5.0
+const SCORE_FEEDBACK_POLL_SECONDS := 0.05
 
 const BOARD_FILL_COLOR := Color8(48, 44, 40)
 const CELL_FILL_COLOR := Color8(245, 240, 235)
@@ -95,6 +97,7 @@ var move_preview_target := Vector2i(-1, -1)
 var move_preview_nodes: Array[Node] = []
 var _preview_hidden_cell := Vector2i(-1, -1)
 var _last_move_target := Vector2i(-1, -1)
+var _turn_generation: int = 0
 var pathfinding: BoardPathfinding
 var rules: BoardRules
 var turns: BoardTurns
@@ -380,6 +383,7 @@ func clear_ball(grid_pos: Vector2i) -> void:
 		ball_nodes.erase(grid_pos)
 
 func move_selected_ball_to(target_cell: Vector2i) -> bool:
+	var action_generation := _turn_generation
 	if not is_in_grid(selected_cell):
 		return false
 	if not is_in_grid(target_cell):
@@ -411,6 +415,8 @@ func move_selected_ball_to(target_cell: Vector2i) -> bool:
 		preview_path.clear()
 		queue_redraw()
 		await animate_ball_along_path(moving_node, move_path)
+		if not is_turn_generation_current(action_generation):
+			return false
 
 	selected_cell = Vector2i(-1, -1)
 	preview_path.clear()
@@ -579,6 +585,7 @@ func clear_move_preview_nodes() -> void:
 	move_preview_nodes.clear()
 
 func complete_player_turn() -> void:
+	var turn_generation := _turn_generation
 	is_busy = true
 	current_chain = 0
 	turn_index += 1
@@ -587,32 +594,45 @@ func complete_player_turn() -> void:
 		"amount": SURVIVAL_MOVE_SCORE,
 		"cell": _last_move_target,
 		"target_score": score,
+		"turn_generation": turn_generation,
 	})
 	print("Turn ", turn_index, ": player moved")
 	if chaos_mode_enabled:
-		await complete_chaos_turn()
+		if not await complete_chaos_turn(turn_generation):
+			return
 	else:
-		await complete_tactical_turn()
+		if not await complete_tactical_turn(turn_generation):
+			return
+	if not is_turn_generation_current(turn_generation):
+		return
 	check_game_over()
 	if not game_over:
 		emit_status("Ready")
 	is_busy = false
 
-func complete_tactical_turn() -> void:
+func complete_tactical_turn(turn_generation: int) -> bool:
 	emit_status("Resolving move")
-	await resolve_system_turn()
+	if not await resolve_system_turn(turn_generation):
+		return false
 	await get_tree().create_timer(SYSTEM_PHASE_PAUSE_SECONDS).timeout
+	if not is_turn_generation_current(turn_generation):
+		return false
 	emit_status("Spawning next turn")
-	await spawn_turn_balls()
+	return await spawn_turn_balls(turn_generation)
 
-func complete_chaos_turn() -> void:
+func complete_chaos_turn(turn_generation: int) -> bool:
 	emit_status("Chaos spawn")
-	await spawn_turn_balls()
+	if not await spawn_turn_balls(turn_generation):
+		return false
 	await get_tree().create_timer(SYSTEM_PHASE_PAUSE_SECONDS).timeout
+	if not is_turn_generation_current(turn_generation):
+		return false
 	emit_status("Chaos resolve")
-	await resolve_system_turn()
+	return await resolve_system_turn(turn_generation)
 
-func spawn_turn_balls() -> void:
+func spawn_turn_balls(turn_generation: int = -1) -> bool:
+	if turn_generation < 0:
+		turn_generation = _turn_generation
 	if next_spawn_heats.is_empty():
 		prepare_next_spawn_preview()
 
@@ -625,16 +645,21 @@ func spawn_turn_balls() -> void:
 		print("No empty cells left. Skipping spawn.")
 		prepare_next_spawn_preview()
 		emit_status("No spawn space")
-		return
+		return true
 
 	for entry in spawn_plan:
+		if not is_turn_generation_current(turn_generation):
+			return false
 		var cell: Vector2i = entry["cell"]
 		var heat: int = entry["heat"]
 		set_ball(cell, heat, true)
 		print("Spawned heat ", heat, " at ", cell)
 		await get_tree().create_timer(SPAWN_STAGGER_SECONDS).timeout
+		if not is_turn_generation_current(turn_generation):
+			return false
 
 	prepare_next_spawn_preview()
+	return true
 
 func prepare_next_spawn_preview() -> void:
 	next_spawn_heats = turns.generate_heat_preview(
@@ -643,10 +668,14 @@ func prepare_next_spawn_preview() -> void:
 		NEW_BALL_MAX_HEAT
 	)
 
-func resolve_system_turn() -> void:
+func resolve_system_turn(turn_generation: int = -1) -> bool:
+	if turn_generation < 0:
+		turn_generation = _turn_generation
 	var did_anything := false
 
 	for cycle_index in range(MAX_SYSTEM_CYCLES):
+		if not is_turn_generation_current(turn_generation):
+			return false
 		# Phase 1: heat update
 		print("System cycle ", cycle_index + 1, ": Phase 1 heat update")
 		emit_status("Heating cycle " + str(cycle_index + 1))
@@ -655,8 +684,12 @@ func resolve_system_turn() -> void:
 		if had_heat_change:
 			did_anything = true
 			await animate_heat_transfers(heat_updates)
+			if not is_turn_generation_current(turn_generation):
+				return false
 			apply_heat_updates(heat_updates, "Heat")
 			await get_tree().create_timer(SYSTEM_PHASE_PAUSE_SECONDS).timeout
+			if not is_turn_generation_current(turn_generation):
+				return false
 		else:
 			print("Phase 1: no heat changes")
 
@@ -666,6 +699,8 @@ func resolve_system_turn() -> void:
 		var had_elimination := false
 
 		while true:
+			if not is_turn_generation_current(turn_generation):
+				return false
 			print("Phase 2: elimination check")
 			emit_status("Checking clusters")
 			var elimination_groups: Array[Dictionary] = rules.find_elimination_groups(board_state, GRID_SIZE)
@@ -712,12 +747,16 @@ func resolve_system_turn() -> void:
 				"final_score": final_score,
 				"target_score": score,
 				"event_id": score_event_id,
+				"turn_generation": turn_generation,
 			})
 			emit_status("Chain " + str(current_chain) + ": cleared " + str(eliminated_cells.size()))
 			play_elimination_feedback(eliminated_cells)
 			await get_tree().create_timer(ELIMINATION_FEEDBACK_SECONDS).timeout
+			if not is_turn_generation_current(turn_generation):
+				return false
 			clear_cells(eliminated_cells)
-			await wait_for_score_feedback(score_event_id)
+			if not await wait_for_score_feedback(score_event_id, turn_generation):
+				return false
 
 			# Phase 3: aftershock for this group only
 			print("Phase 3: aftershock")
@@ -729,8 +768,12 @@ func resolve_system_turn() -> void:
 			)
 			if not aftershock_updates.is_empty():
 				await animate_aftershock_transfers(eliminated_cells, aftershock_updates)
+				if not is_turn_generation_current(turn_generation):
+					return false
 				apply_heat_updates(aftershock_updates, "Aftershock")
 				await get_tree().create_timer(SYSTEM_PHASE_PAUSE_SECONDS).timeout
+				if not is_turn_generation_current(turn_generation):
+					return false
 			else:
 				print("Phase 3: no aftershock heat changes")
 
@@ -744,16 +787,21 @@ func resolve_system_turn() -> void:
 				print("System resolved after ", cycle_index + 1, " cycle(s)")
 			else:
 				print("System phase: no heat changes or eliminations")
-			return
+			return true
 
 	print("System phase stopped after max cycle limit: ", MAX_SYSTEM_CYCLES)
+	return true
 
 func apply_heat_updates(heat_updates: Array[Dictionary], label: String) -> void:
 	for update in heat_updates:
 		var cell: Vector2i = update["cell"]
 		var old_heat: int = update["old_heat"]
 		var new_heat: int = update["new_heat"]
-		board_state[cell.y][cell.x]["heat"] = new_heat
+		var ball: Variant = get_ball(cell)
+		if ball == null:
+			print(label, " skipped at ", cell, ": ball no longer exists")
+			continue
+		ball["heat"] = new_heat
 		upsert_ball_node(cell, new_heat, true)
 		var ball_node = ball_nodes.get(cell)
 		if ball_node != null:
@@ -883,25 +931,46 @@ func get_chain_score_multiplier(chain_depth: int) -> int:
 		multiplier *= 2
 	return multiplier
 
-func notify_score_feedback_complete(event_id: int) -> void:
+func notify_score_feedback_complete(event_id: int, turn_generation: int = -1) -> void:
+	if turn_generation >= 0 and not is_turn_generation_current(turn_generation):
+		return
 	completed_score_event_ids[event_id] = true
 	score_feedback_completed.emit(event_id)
 
 func register_score_feedback_sync() -> void:
 	score_feedback_sync_enabled = true
 
-func wait_for_score_feedback(event_id: int) -> void:
+func wait_for_score_feedback(event_id: int, turn_generation: int = -1) -> bool:
+	if turn_generation < 0:
+		turn_generation = _turn_generation
 	if not score_feedback_sync_enabled:
-		return
+		return true
 	if completed_score_event_ids.has(event_id):
 		completed_score_event_ids.erase(event_id)
-		return
+		return true
 
-	while true:
-		var completed_event_id: int = await score_feedback_completed
-		if completed_event_id == event_id:
+	var waited_seconds := 0.0
+	while waited_seconds < SCORE_FEEDBACK_TIMEOUT_SECONDS:
+		if not is_turn_generation_current(turn_generation):
+			return false
+		if completed_score_event_ids.has(event_id):
 			completed_score_event_ids.erase(event_id)
-			return
+			return true
+		await get_tree().create_timer(SCORE_FEEDBACK_POLL_SECONDS).timeout
+		waited_seconds += SCORE_FEEDBACK_POLL_SECONDS
+
+	push_warning("Score feedback timed out for event " + str(event_id) + ". Continuing turn resolution.")
+	return is_turn_generation_current(turn_generation)
+
+func is_turn_generation_current(turn_generation: int) -> bool:
+	return turn_generation == _turn_generation
+
+func get_turn_generation() -> int:
+	return _turn_generation
+
+func advance_turn_generation() -> void:
+	_turn_generation += 1
+	completed_score_event_ids.clear()
 
 func clear_cells(cells: Array[Vector2i]) -> void:
 	for cell in cells:
@@ -1011,6 +1080,10 @@ func restart_game() -> void:
 	queue_redraw()
 
 func reset_runtime_state() -> void:
+	advance_turn_generation()
+	score_event.emit("reset", {
+		"turn_generation": _turn_generation,
+	})
 	selected_cell = Vector2i(-1, -1)
 	hovered_cell = Vector2i(-1, -1)
 	preview_path.clear()
@@ -1021,7 +1094,6 @@ func reset_runtime_state() -> void:
 	current_chain = 0
 	max_chain = 0
 	next_score_event_id = 1
-	completed_score_event_ids.clear()
 	next_spawn_heats.clear()
 	turn_index = 0
 	game_over = false

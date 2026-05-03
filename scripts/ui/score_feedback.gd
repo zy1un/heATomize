@@ -50,11 +50,14 @@ var _hud: CanvasLayer
 var _feedback_layer: Control
 var _clear_queue: Array[Dictionary] = []
 var _is_playing_clear := false
+var _feedback_generation: int = 0
 
 
 func setup(board: Node2D, hud: CanvasLayer) -> void:
 	_board = board
 	_hud = hud
+	if board.has_method("get_turn_generation"):
+		_feedback_generation = board.get_turn_generation()
 	board.score_event.connect(_on_score_event)
 	if board.has_method("register_score_feedback_sync"):
 		board.register_score_feedback_sync()
@@ -71,11 +74,15 @@ func _on_score_event(event_type: String, data: Dictionary) -> void:
 			_show_survival(data)
 		"clear":
 			_queue_clear(data)
+		"reset":
+			_reset_feedback(data)
 		"multiplier":
 			pass
 
 
 func _show_survival(data: Dictionary) -> void:
+	if not _is_event_current(data):
+		return
 	var cell: Vector2i = data.get("cell", Vector2i(-1, -1))
 	var amount: int = data.get("amount", 0)
 	var target_score: int = data.get("target_score", -1)
@@ -97,6 +104,8 @@ func _show_survival(data: Dictionary) -> void:
 
 
 func _queue_clear(data: Dictionary) -> void:
+	if not _is_event_current(data):
+		return
 	_clear_queue.append(data)
 	if not _is_playing_clear:
 		_drain_clear_queue()
@@ -106,45 +115,71 @@ func _drain_clear_queue() -> void:
 	_is_playing_clear = true
 	while not _clear_queue.is_empty():
 		var data: Dictionary = _clear_queue.pop_front()
+		if not _is_event_current(data):
+			continue
 		await _play_clear_pipeline(data)
 	_is_playing_clear = false
 
 
 func _play_clear_pipeline(data: Dictionary) -> void:
 	var event_id: int = data.get("event_id", -1)
+	var event_generation: int = data.get("turn_generation", _feedback_generation)
 	var chain_depth: int = data.get("chain_depth", 1)
 	var multiplier: int = data.get("multiplier", 1)
 	var heat: int = data.get("heat", 1)
 	var balls: Array = data.get("balls", [])
 	var target_score: int = data.get("target_score", -1)
 	if balls.is_empty():
-		_notify_clear_pipeline_done(event_id)
+		_notify_clear_pipeline_done(event_id, event_generation)
 		return
 
 	var base_labels := _spawn_score_labels(balls, 1, PER_BALL_FONT_SIZE, 0.0)
 
 	if chain_depth >= 2:
 		await get_tree().create_timer(CHAIN_MULTIPLIER_START_SECONDS).timeout
+		if event_generation != _feedback_generation:
+			return
 		_spawn_multiplier_banner(multiplier, heat)
 		await get_tree().create_timer(_multiplier_reveal_seconds(multiplier)).timeout
+		if event_generation != _feedback_generation:
+			return
 		await _fade_labels(base_labels)
 		await get_tree().create_timer(REVEAL_PAUSE_SECONDS).timeout
+		if event_generation != _feedback_generation:
+			return
 		var multiplied_font := _multiplied_font_size(chain_depth)
 		var multiplied_labels := _spawn_score_labels(balls, multiplier, multiplied_font, 0.0)
 		await get_tree().create_timer(_label_pop_span(multiplied_labels.size()) + MULTIPLIED_HOLD_SECONDS).timeout
+		if event_generation != _feedback_generation:
+			return
 		await _atomize_labels_to_scoreboard(multiplied_labels, heat)
 	else:
 		await get_tree().create_timer(_label_pop_span(base_labels.size()) + BASE_SCORE_HOLD_SECONDS).timeout
+		if event_generation != _feedback_generation:
+			return
 		await _atomize_labels_to_scoreboard(base_labels, heat)
 
 	if target_score >= 0 and _hud != null and _hud.has_method("inject_score_to"):
 		_hud.inject_score_to(target_score, heat, _multiplier_intensity(multiplier))
-	_notify_clear_pipeline_done(event_id)
+	_notify_clear_pipeline_done(event_id, event_generation)
 
 
-func _notify_clear_pipeline_done(event_id: int) -> void:
+func _notify_clear_pipeline_done(event_id: int, event_generation: int) -> void:
 	if event_id >= 0 and _board != null and _board.has_method("notify_score_feedback_complete"):
-		_board.notify_score_feedback_complete(event_id)
+		_board.notify_score_feedback_complete(event_id, event_generation)
+
+
+func _reset_feedback(data: Dictionary) -> void:
+	_feedback_generation = data.get("turn_generation", _feedback_generation + 1)
+	_clear_queue.clear()
+	_is_playing_clear = false
+	if _feedback_layer != null:
+		for child in _feedback_layer.get_children():
+			child.queue_free()
+
+
+func _is_event_current(data: Dictionary) -> bool:
+	return data.get("turn_generation", _feedback_generation) == _feedback_generation
 
 
 func _spawn_score_labels(

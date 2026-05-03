@@ -2,7 +2,7 @@
 
 Godot 4.6 prototype for a heat-driven cluster elimination puzzle game.
 
-The current build is a playable rules prototype: the player moves heat balls across a 9x9 board, new balls spawn after each move, heat updates propagate through adjacent balls, matching heat clusters clear, and aftershocks can trigger chained reactions.
+The current build is a playable rules prototype: the player moves heat balls across a 9x9 board, the moved board resolves heat and clears clusters, aftershocks can trigger chained reactions, and previewed new balls spawn for the next turn.
 
 ## Current Status
 
@@ -24,7 +24,7 @@ Implemented:
 - Phase 3 aftershock heat increase and chained system cycles
 - Spawn, heat-update, aftershock, and elimination feedback
 - HUD scene with score, cleared count, chain stats, next preview, restart, and debug controls
-- Headless smoke tests for rules, turns, and animation
+- Headless smoke tests for rules, turns, turn order, scoring, reset cancellation, and animation
 
 Still rough:
 
@@ -59,7 +59,7 @@ Run the smoke tests:
 .\scripts\dev\run_tests.ps1
 ```
 
-This currently runs board-rule, turn-planning, and animation smoke tests. To call the board-rule test directly:
+This currently runs board-rule, turn-planning, turn-order, scoring, reset-cancellation, and animation smoke tests. To call the board-rule test directly:
 
 ```powershell
 & "D:\program\tools\godot\Godot_v4.6.1-stable_win64_console.exe" --headless --log-file "D:\program\heATomize\.godot\agent-logs\board_rules_smoke_test.log" --path "D:\program\heATomize" --script res://scripts/tests/board_rules_smoke_test.gd
@@ -73,6 +73,7 @@ While the game is running:
 
 - `F5`: load a cascade-focused debug board
 - `F6`: load a blocked-path debug board
+- `F7`: load a chain-focused debug board
 
 ## Project Layout
 
@@ -93,16 +94,22 @@ While the game is running:
 
 ## Core Rules
 
-Each completed player move runs this system loop:
+By default, each completed player move resolves the moved board first, then spawns the previewed balls for the next turn. The system loop is:
 
 1. Phase 1: update every ball's heat simultaneously from the old board state.
 2. Phase 2: find same-heat 4-neighbor connected groups and clear groups meeting the heat threshold.
 3. Phase 3: apply aftershock, raising orthogonal neighbors of cleared cells by `+1`, capped at `5`.
 4. Repeat Phase 1-3 until there are no new eliminations.
+5. Spawn up to 3 previewed balls after the system settles.
+
+Chaos Mode keeps the older order for comparison: spawn first, then let new balls participate in the same system resolve.
 
 Scoring:
 
-- Each cleared ball is worth `100 * current_chain`.
+- Each successful move grants `2` survival points.
+- Each cleared ball is worth `10 + 2 * heat`.
+- Each elimination group is multiplied by the current chain multiplier.
+- Chain multipliers double by depth: chain 1 is `1x`, chain 2 is `2x`, chain 3 is `4x`, and so on.
 - `Best Chain` records the largest chain depth reached in the current session.
 
 Elimination thresholds:

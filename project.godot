@@ -13,7 +13,7 @@ config_version=5
 config/name="heATomize"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
-config/icon="res://icon.svg"
+config/icon="res://assets/branding/heatomize_logo.png"
 
 [display]
 

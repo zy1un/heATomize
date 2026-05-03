@@ -26,6 +26,11 @@ $tests = @(
         Log = "scoring_smoke_test.log"
     },
     @{
+        Name = "reset cancellation"
+        Script = "res://scripts/tests/reset_cancellation_smoke_test.gd"
+        Log = "reset_cancellation_smoke_test.log"
+    },
+    @{
         Name = "animation"
         Script = "res://scripts/tests/animation_smoke_test.gd"
         Log = "animation_smoke_test.log"
