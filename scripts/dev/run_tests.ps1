@@ -16,6 +16,11 @@ $tests = @(
         Log = "board_turns_smoke_test.log"
     },
     @{
+        Name = "board presets"
+        Script = "res://scripts/tests/board_presets_smoke_test.gd"
+        Log = "board_presets_smoke_test.log"
+    },
+    @{
         Name = "turn order"
         Script = "res://scripts/tests/turn_order_smoke_test.gd"
         Log = "turn_order_smoke_test.log"

@@ -5,7 +5,10 @@ signal score_event(event_type: String, data: Dictionary)
 signal score_feedback_completed(event_id: int)
 
 const BoardPathfinding = preload("res://scripts/board/board_pathfinding.gd")
+const BoardEffects = preload("res://scripts/board/board_effects.gd")
+const BoardPresets = preload("res://scripts/board/board_presets.gd")
 const BoardRules = preload("res://scripts/board/board_rules.gd")
+const BoardScoring = preload("res://scripts/board/board_scoring.gd")
 const BoardTurns = preload("res://scripts/board/board_turns.gd")
 
 const GRID_SIZE := 9
@@ -17,19 +20,10 @@ const BALL_RADIUS := 27.0
 const NEW_BALLS_PER_TURN := 3
 const NEW_BALL_MIN_HEAT := 1
 const NEW_BALL_MAX_HEAT := 3
-const SURVIVAL_MOVE_SCORE := 2
-const CLEAR_BASE_SCORE := 10
-const CLEAR_HEAT_SCORE := 2
 const MAX_SYSTEM_CYCLES := 64
-const MOVE_ANIMATION_SECONDS := 0.16
-const MOVE_ANIMATION_MIN_STEP_SECONDS := 0.045
-const MOVE_ANIMATION_MAX_TOTAL_SECONDS := 0.48
 const ELIMINATION_FEEDBACK_SECONDS := 0.72
 const SYSTEM_PHASE_PAUSE_SECONDS := 0.18
 const SPAWN_STAGGER_SECONDS := 0.09
-const HEAT_TRANSFER_SECONDS := 0.48
-const AFTERSHOCK_TRANSFER_SECONDS := 0.54
-const TRANSFER_STAGGER_SECONDS := 0.035
 const SCORE_FEEDBACK_TIMEOUT_SECONDS := 5.0
 const SCORE_FEEDBACK_POLL_SECONDS := 0.05
 
@@ -98,19 +92,25 @@ var move_preview_nodes: Array[Node] = []
 var _preview_hidden_cell := Vector2i(-1, -1)
 var _last_move_target := Vector2i(-1, -1)
 var _turn_generation: int = 0
+var effects: BoardEffects
 var pathfinding: BoardPathfinding
+var presets: BoardPresets
 var rules: BoardRules
+var scoring: BoardScoring
 var turns: BoardTurns
 
 func _ready() -> void:
 	print("Board is ready")
+	effects = BoardEffects.new()
 	pathfinding = BoardPathfinding.new()
+	presets = BoardPresets.new()
 	rules = BoardRules.new()
+	scoring = BoardScoring.new()
 	turns = BoardTurns.new()
 	setup_balls_layer()
 	setup_effects_layer()
 	initialize_board()
-	place_test_balls()
+	place_balls(presets.get_initial_balls())
 	prepare_next_spawn_preview()
 	emit_status("Ready")
 	queue_redraw()
@@ -191,10 +191,9 @@ func initialize_board() -> void:
 			row.append(null)
 		board_state.append(row)
 
-func place_test_balls() -> void:
-	set_ball(Vector2i(2, 2), 1)
-	set_ball(Vector2i(4, 4), 3)
-	set_ball(Vector2i(6, 5), 5)
+func place_balls(ball_entries: Array[Dictionary]) -> void:
+	for entry in ball_entries:
+		set_ball(entry["cell"], int(entry["heat"]))
 
 func handle_cell_click(cell: Vector2i) -> void:
 	var ball: Variant = get_ball(cell)
@@ -414,7 +413,7 @@ func move_selected_ball_to(target_cell: Vector2i) -> bool:
 		moving_node.set_selected(false)
 		preview_path.clear()
 		queue_redraw()
-		await animate_ball_along_path(moving_node, move_path)
+		await effects.animate_ball_along_path(self, moving_node, move_path, grid_to_pixel_center)
 		if not is_turn_generation_current(action_generation):
 			return false
 
@@ -424,27 +423,6 @@ func move_selected_ball_to(target_cell: Vector2i) -> bool:
 	_last_move_target = target_cell
 	print("Moved: ", from_cell, " -> ", target_cell)
 	return true
-
-func animate_ball_along_path(ball_node: Node2D, move_path: Array[Vector2i]) -> void:
-	if move_path.size() <= 1:
-		ball_node.position = grid_to_pixel_center(move_path.back())
-		return
-
-	var tween := create_tween()
-	var step_duration := get_move_step_duration(move_path)
-	for index in range(1, move_path.size()):
-		tween.tween_property(
-			ball_node,
-			"position",
-			grid_to_pixel_center(move_path[index]),
-			step_duration
-		).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	await tween.finished
-
-func get_move_step_duration(move_path: Array[Vector2i]) -> float:
-	var step_count: int = maxi(1, move_path.size() - 1)
-	var capped_duration: float = MOVE_ANIMATION_MAX_TOTAL_SECONDS / float(step_count)
-	return maxf(MOVE_ANIMATION_MIN_STEP_SECONDS, minf(MOVE_ANIMATION_SECONDS, capped_duration))
 
 func update_preview_path() -> void:
 	preview_path.clear()
@@ -589,9 +567,10 @@ func complete_player_turn() -> void:
 	is_busy = true
 	current_chain = 0
 	turn_index += 1
-	score += SURVIVAL_MOVE_SCORE
+	var survival_score := scoring.get_survival_move_score()
+	score += survival_score
 	score_event.emit("survival", {
-		"amount": SURVIVAL_MOVE_SCORE,
+		"amount": survival_score,
 		"cell": _last_move_target,
 		"target_score": score,
 		"turn_generation": turn_generation,
@@ -683,7 +662,13 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 		var had_heat_change := not heat_updates.is_empty()
 		if had_heat_change:
 			did_anything = true
-			await animate_heat_transfers(heat_updates)
+			await effects.animate_heat_transfers(
+				self,
+				effects_layer,
+				heat_updates,
+				get_hotter_neighbor_cells_by_target(heat_updates),
+				grid_to_pixel_center
+			)
 			if not is_turn_generation_current(turn_generation):
 				return false
 			apply_heat_updates(heat_updates, "Heat")
@@ -710,7 +695,7 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 			had_elimination = true
 			did_anything = true
 
-			# Process first elimination group only — enables proper chain feel
+			# Process first elimination group only; this keeps chains readable.
 			var group: Dictionary = elimination_groups[0]
 			var group_heat: int = group["heat"]
 			var group_cells: Array = group["cells"]
@@ -722,23 +707,27 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 			max_chain = maxi(max_chain, current_chain)
 			total_eliminated += eliminated_cells.size()
 
-			# Score: per-group base × per-chain multiplier
-			var group_base := eliminated_cells.size() * get_ball_clear_score(group_heat)
-			var chain_mult := get_chain_score_multiplier(current_chain)
-			score += group_base * chain_mult
+			# Score: per-group base times per-chain multiplier.
+			var group_base := eliminated_cells.size() * scoring.get_ball_clear_score(group_heat)
+			var chain_mult := scoring.get_chain_score_multiplier(current_chain)
+			var final_score: int = scoring.get_group_clear_score(
+				group_heat,
+				eliminated_cells.size(),
+				current_chain
+			)
+			score += final_score
 			log_elimination_groups([group])
 			var score_event_id := next_score_event_id
 			next_score_event_id += 1
 
-			# Emit score events for feedback — per-ball data for visual pipeline
+			# Emit per-ball score data for the visual feedback pipeline.
 			var balls_data: Array[Dictionary] = []
 			for c in eliminated_cells:
 				balls_data.append({
 					"cell": c,
 					"heat": group_heat,
-					"base_score": get_ball_clear_score(group_heat),
+					"base_score": scoring.get_ball_clear_score(group_heat),
 				})
-			var final_score: int = group_base * chain_mult
 			score_event.emit("clear", {
 				"heat": group_heat,
 				"chain_depth": current_chain,
@@ -750,7 +739,7 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 				"turn_generation": turn_generation,
 			})
 			emit_status("Chain " + str(current_chain) + ": cleared " + str(eliminated_cells.size()))
-			play_elimination_feedback(eliminated_cells)
+			effects.play_elimination_feedback(eliminated_cells, ball_nodes)
 			await get_tree().create_timer(ELIMINATION_FEEDBACK_SECONDS).timeout
 			if not is_turn_generation_current(turn_generation):
 				return false
@@ -767,7 +756,13 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 				eliminated_cells
 			)
 			if not aftershock_updates.is_empty():
-				await animate_aftershock_transfers(eliminated_cells, aftershock_updates)
+				await effects.animate_aftershock_transfers(
+					self,
+					effects_layer,
+					eliminated_cells,
+					aftershock_updates,
+					grid_to_pixel_center
+				)
 				if not is_turn_generation_current(turn_generation):
 					return false
 				apply_heat_updates(aftershock_updates, "Aftershock")
@@ -811,14 +806,8 @@ func apply_heat_updates(heat_updates: Array[Dictionary], label: String) -> void:
 				ball_node.play_heat_feedback()
 		print(label, " updated at ", cell, ": ", old_heat, " -> ", new_heat)
 
-func play_elimination_feedback(cells: Array[Vector2i]) -> void:
-	for cell in cells:
-		var ball_node = ball_nodes.get(cell)
-		if ball_node != null:
-			ball_node.play_elimination_feedback()
-
-func animate_heat_transfers(heat_updates: Array[Dictionary]) -> void:
-	var effect_count := 0
+func get_hotter_neighbor_cells_by_target(heat_updates: Array[Dictionary]) -> Dictionary:
+	var source_cells_by_target: Dictionary = {}
 	for update in heat_updates:
 		var old_heat: int = update["old_heat"]
 		var new_heat: int = update["new_heat"]
@@ -826,67 +815,9 @@ func animate_heat_transfers(heat_updates: Array[Dictionary]) -> void:
 			continue
 
 		var target_cell: Vector2i = update["cell"]
-		var source_cells := get_hotter_neighbor_cells(target_cell, old_heat)
-		for source_cell in source_cells:
-			var delay := effect_count * TRANSFER_STAGGER_SECONDS
-			spawn_transfer_pixel(
-				grid_to_pixel_center(source_cell),
-				grid_to_pixel_center(target_cell),
-				Color8(255, 208, 82),
-				HEAT_TRANSFER_SECONDS,
-				delay,
-				8.0
-			)
-			effect_count += 1
+		source_cells_by_target[target_cell] = get_hotter_neighbor_cells(target_cell, old_heat)
 
-	if effect_count > 0:
-		var total_seconds := HEAT_TRANSFER_SECONDS + (effect_count - 1) * TRANSFER_STAGGER_SECONDS
-		await get_tree().create_timer(total_seconds).timeout
-
-func animate_aftershock_transfers(eliminated_cells: Array[Vector2i], heat_updates: Array[Dictionary]) -> void:
-	var effect_count := 0
-	for update in heat_updates:
-		var target_cell: Vector2i = update["cell"]
-		for source_cell in get_adjacent_cells_from(target_cell, eliminated_cells):
-			var delay := effect_count * TRANSFER_STAGGER_SECONDS
-			spawn_transfer_pixel(
-				grid_to_pixel_center(source_cell),
-				grid_to_pixel_center(target_cell),
-				Color8(255, 86, 42),
-				AFTERSHOCK_TRANSFER_SECONDS,
-				delay,
-				10.0
-			)
-			effect_count += 1
-
-	if effect_count > 0:
-		var total_seconds := AFTERSHOCK_TRANSFER_SECONDS + (effect_count - 1) * TRANSFER_STAGGER_SECONDS
-		await get_tree().create_timer(total_seconds).timeout
-
-func spawn_transfer_pixel(
-	start_pos: Vector2,
-	end_pos: Vector2,
-	color: Color,
-	duration: float,
-	delay: float,
-	size: float
-) -> void:
-	var pixel := ColorRect.new()
-	pixel.color = color
-	pixel.size = Vector2(size, size)
-	pixel.pivot_offset = pixel.size * 0.5
-	pixel.position = start_pos - pixel.pivot_offset
-	pixel.modulate.a = 0.0
-	effects_layer.add_child(pixel)
-
-	var tween := create_tween()
-	tween.tween_interval(delay)
-	tween.set_parallel(true)
-	tween.tween_property(pixel, "position", end_pos - pixel.pivot_offset, duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(pixel, "modulate:a", 1.0, duration * 0.25).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(pixel, "scale", Vector2.ONE * 1.35, duration * 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.chain().tween_property(pixel, "modulate:a", 0.0, duration * 0.28).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.finished.connect(pixel.queue_free)
+	return source_cells_by_target
 
 func get_hotter_neighbor_cells(cell: Vector2i, heat: int) -> Array[Vector2i]:
 	var source_cells: Array[Vector2i] = []
@@ -897,13 +828,6 @@ func get_hotter_neighbor_cells(cell: Vector2i, heat: int) -> Array[Vector2i]:
 			continue
 		if int(neighbor_ball["heat"]) > heat:
 			source_cells.append(neighbor_cell)
-	return source_cells
-
-func get_adjacent_cells_from(cell: Vector2i, candidates: Array[Vector2i]) -> Array[Vector2i]:
-	var source_cells: Array[Vector2i] = []
-	for candidate in candidates:
-		if abs(candidate.x - cell.x) + abs(candidate.y - cell.y) == 1:
-			source_cells.append(candidate)
 	return source_cells
 
 func log_elimination_groups(elimination_groups: Array[Dictionary]) -> void:
@@ -923,13 +847,10 @@ func log_elimination_groups(elimination_groups: Array[Dictionary]) -> void:
 		)
 
 func get_ball_clear_score(heat: int) -> int:
-	return CLEAR_BASE_SCORE + CLEAR_HEAT_SCORE * heat
+	return scoring.get_ball_clear_score(heat)
 
 func get_chain_score_multiplier(chain_depth: int) -> int:
-	var multiplier := 1
-	for _index in range(maxi(0, chain_depth - 1)):
-		multiplier *= 2
-	return multiplier
+	return scoring.get_chain_score_multiplier(chain_depth)
 
 func notify_score_feedback_complete(event_id: int, turn_generation: int = -1) -> void:
 	if turn_generation >= 0 and not is_turn_generation_current(turn_generation):
@@ -1055,15 +976,7 @@ func load_debug_board(board_name: String) -> void:
 	reset_runtime_state()
 	clear_ball_nodes()
 	initialize_board()
-
-	if board_name == "cascade":
-		place_debug_cascade_board()
-	elif board_name == "blocked":
-		place_debug_blocked_board()
-	elif board_name == "chain":
-		place_debug_chain_board()
-	else:
-		place_test_balls()
+	place_balls(presets.get_debug_balls(board_name))
 
 	prepare_next_spawn_preview()
 	emit_status("Debug: " + board_name)
@@ -1074,7 +987,7 @@ func restart_game() -> void:
 	reset_runtime_state()
 	clear_ball_nodes()
 	initialize_board()
-	place_test_balls()
+	place_balls(presets.get_initial_balls())
 	prepare_next_spawn_preview()
 	emit_status("Ready")
 	queue_redraw()
@@ -1106,51 +1019,3 @@ func clear_ball_nodes() -> void:
 	if effects_layer != null:
 		for child in effects_layer.get_children():
 			child.queue_free()
-
-func place_debug_cascade_board() -> void:
-	set_ball(Vector2i(1, 1), 5)
-	set_ball(Vector2i(2, 1), 5)
-	set_ball(Vector2i(3, 1), 5)
-	set_ball(Vector2i(2, 2), 4)
-	set_ball(Vector2i(2, 3), 4)
-	set_ball(Vector2i(1, 3), 4)
-	set_ball(Vector2i(3, 3), 4)
-	set_ball(Vector2i(7, 7), 2)
-
-func place_debug_chain_board() -> void:
-	# Multi-chain test board: 2-chain cascade with large elimination groups.
-	# Row 0: heat 5 (5 balls) → chain 1 (threshold 3)
-	# Row 1: heat 3 (5 balls) → Phase 1 raises to 4, aftershock to 5 → chain 2
-	# Row 2: heat 1 (5 balls) → aftershock → heat 3, chain 2 collateral
-	# Row 3: heat 1 (7 balls) → chain 1 collateral (threshold 7)
-	# Corners: movable balls for the player
-	set_ball(Vector2i(2, 0), 5)
-	set_ball(Vector2i(3, 0), 5)
-	set_ball(Vector2i(4, 0), 5)
-	set_ball(Vector2i(5, 0), 5)
-	set_ball(Vector2i(6, 0), 5)
-	set_ball(Vector2i(2, 1), 3)
-	set_ball(Vector2i(3, 1), 3)
-	set_ball(Vector2i(4, 1), 3)
-	set_ball(Vector2i(5, 1), 3)
-	set_ball(Vector2i(6, 1), 3)
-	set_ball(Vector2i(2, 2), 1)
-	set_ball(Vector2i(3, 2), 1)
-	set_ball(Vector2i(4, 2), 1)
-	set_ball(Vector2i(5, 2), 1)
-	set_ball(Vector2i(6, 2), 1)
-	set_ball(Vector2i(1, 3), 1)
-	set_ball(Vector2i(2, 3), 1)
-	set_ball(Vector2i(3, 3), 1)
-	set_ball(Vector2i(4, 3), 1)
-	set_ball(Vector2i(5, 3), 1)
-	set_ball(Vector2i(6, 3), 1)
-	set_ball(Vector2i(7, 3), 1)
-	set_ball(Vector2i(0, 8), 5)
-	set_ball(Vector2i(8, 8), 4)
-
-func place_debug_blocked_board() -> void:
-	for x in range(GRID_SIZE):
-		set_ball(Vector2i(x, 4), 2)
-	set_ball(Vector2i(1, 1), 3)
-	set_ball(Vector2i(7, 7), 1)
