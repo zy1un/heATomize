@@ -10,6 +10,7 @@ extends Node2D
 
 const PIXEL_FONT: FontFile = preload("res://assets/fonts/PressStart2P-Regular.ttf")
 const GameFeel = preload("res://scripts/core/game_feel.gd")
+const ShockwaveEffect = preload("res://scripts/effects/shockwave_effect.gd")
 
 @onready var visual: ColorRect = $Visual
 @onready var heat_label: Label = %HeatLabel
@@ -18,6 +19,7 @@ var feedback_tween: Tween
 
 var base_fill_color: Color = Color.WHITE
 var base_outline_color: Color = Color.BLACK
+var current_heat := 1
 var is_selected := false
 var is_feedback_active := false
 var has_configured := false
@@ -48,6 +50,7 @@ func _process(delta: float) -> void:
 
 func configure(heat: int, fill_color: Color, outline_color: Color, apply_immediately := true) -> void:
 	ensure_unique_material()
+	current_heat = heat
 	base_fill_color = fill_color
 	base_outline_color = outline_color
 	if apply_immediately or not has_configured:
@@ -88,6 +91,7 @@ func play_heat_feedback() -> void:
 	play_color_flash(Color(1.0, 0.88, 0.34, 1.0), heat_change_seconds, feedback_scale)
 
 func play_aftershock_feedback() -> void:
+	spawn_aftershock_wave()
 	play_color_flash(Color(1.0, 0.38, 0.18, 1.0), aftershock_seconds, feedback_scale * 1.08)
 
 func play_elimination_feedback() -> void:
@@ -95,15 +99,13 @@ func play_elimination_feedback() -> void:
 	is_feedback_active = true
 	apply_colors(Color.WHITE, Color(1.0, 0.25, 0.1, 1.0))
 	spawn_elimination_shockwave()
-	spawn_pixel_fragments()
 
 	var effect_scale := clampf(GameFeel.get_flash_scale(), 0.0, 2.0)
 	feedback_tween = create_tween()
 	feedback_tween.set_parallel(true)
-	feedback_tween.tween_property(self, "scale", Vector2.ONE * (1.0 + 0.25 * effect_scale), elimination_seconds * 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	feedback_tween.tween_property(heat_label, "modulate:a", 0.0, elimination_seconds * 0.22)
-	feedback_tween.chain().tween_property(self, "scale", Vector2.ONE * 0.15, elimination_seconds * 0.5).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
-	feedback_tween.parallel().tween_property(self, "modulate:a", 0.0, elimination_seconds * 0.5)
+	feedback_tween.tween_property(self, "scale", Vector2.ONE * (0.22 + 0.04 * effect_scale), 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	feedback_tween.tween_property(self, "modulate:a", 0.0, 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	feedback_tween.tween_property(heat_label, "modulate:a", 0.0, 0.06)
 
 func play_color_flash(flash_color: Color, duration: float, target_scale: float) -> void:
 	stop_feedback()
@@ -217,39 +219,33 @@ func spawn_elimination_shockwave() -> void:
 	if effect_scale <= 0.0:
 		return
 
-	var ring_count := 2
-	for ring_index in range(ring_count):
-		var ring := ColorRect.new()
-		var ring_size := radius * (2.0 + float(ring_index) * 0.22)
-		ring.size = Vector2(ring_size, ring_size)
-		ring.pivot_offset = ring.size * 0.5
-		ring.position = position - ring.pivot_offset
-		ring.color = Color(1.0, 0.48 - float(ring_index) * 0.12, 0.12, 0.0)
-		parent_node.add_child(ring)
+	ShockwaveEffect.spawn(
+		parent_node,
+		position,
+		radius,
+		base_fill_color,
+		base_outline_color,
+		effect_scale,
+		ShockwaveEffect.Mode.ELIMINATION,
+		current_heat
+	)
 
-		var ring_style := StyleBoxFlat.new()
-		ring_style.bg_color = Color.TRANSPARENT
-		ring_style.border_color = base_fill_color.lerp(Color.WHITE, 0.45)
-		ring_style.set_border_width_all(3 - ring_index)
-		var corner_radius := int(ring_size * 0.5)
-		ring_style.corner_radius_top_left = corner_radius
-		ring_style.corner_radius_top_right = corner_radius
-		ring_style.corner_radius_bottom_left = corner_radius
-		ring_style.corner_radius_bottom_right = corner_radius
+func spawn_aftershock_wave() -> void:
+	var parent_node := get_parent()
+	if parent_node == null:
+		return
 
-		var panel := Panel.new()
-		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		panel.size = ring.size
-		panel.add_theme_stylebox_override("panel", ring_style)
-		ring.add_child(panel)
-		ring.modulate.a = (0.82 - float(ring_index) * 0.22) * effect_scale
-		ring.scale = Vector2.ONE * (0.38 + float(ring_index) * 0.12)
+	var effect_scale := clampf(GameFeel.get_flash_scale(), 0.0, 1.0)
+	if effect_scale <= 0.0:
+		return
 
-		var delay := float(ring_index) * 0.045
-		var duration := elimination_seconds * (0.42 + float(ring_index) * 0.08)
-		var tween := create_tween()
-		tween.tween_interval(delay)
-		tween.set_parallel(true)
-		tween.tween_property(ring, "scale", Vector2.ONE * (1.65 + float(ring_index) * 0.28), duration).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
-		tween.tween_property(ring, "modulate:a", 0.0, duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-		tween.chain().tween_callback(ring.queue_free)
+	ShockwaveEffect.spawn(
+		parent_node,
+		position,
+		radius,
+		base_fill_color,
+		base_outline_color,
+		effect_scale * 0.72,
+		ShockwaveEffect.Mode.AFTERSHOCK,
+		current_heat
+	)
