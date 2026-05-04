@@ -7,6 +7,7 @@ signal move_preview_changed(enabled: bool)
 signal chaos_mode_changed(enabled: bool)
 
 const PIXEL_FONT: FontFile = preload("res://assets/fonts/PressStart2P-Regular.ttf")
+const GameFeel = preload("res://scripts/core/game_feel.gd")
 
 const PREVIEW_COLORS := {
 	1: Color8(201, 205, 209),
@@ -145,6 +146,7 @@ func animate_score_to(target_score: int, heat: int, intensity: int = 1) -> void:
 	var start_score: int = displayed_score
 	var score_delta: int = maxi(1, target_score - start_score)
 	var duration: float = clampf(0.18 + float(score_delta) / 260.0, 0.22, 0.8)
+	var effect_scale := clampf(GameFeel.get_flash_scale(), 0.0, 2.0)
 	var driver: Tween = create_tween()
 	score_tween = driver
 	score_panel.pivot_offset = score_panel.size * 0.5
@@ -158,7 +160,7 @@ func animate_score_to(target_score: int, heat: int, intensity: int = 1) -> void:
 	driver.parallel().tween_property(
 		score_panel,
 		"scale",
-		Vector2.ONE * (1.0 + 0.025 * float(clampi(intensity, 1, 4))),
+		Vector2.ONE * (1.0 + 0.025 * float(clampi(intensity, 1, 4)) * effect_scale),
 		0.09
 	).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	driver.tween_property(score_panel, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
@@ -169,23 +171,29 @@ func flash_scoreboard(heat: int, intensity: int = 1) -> void:
 	if score_flash_tween != null and score_flash_tween.is_valid():
 		score_flash_tween.kill()
 
+	var effect_scale := clampf(GameFeel.get_flash_scale(), 0.0, 2.0)
+	if effect_scale <= 0.0:
+		apply_score_panel_style()
+		return
+
+	var scaled_intensity := clampf(float(clampi(intensity, 1, 4)) * effect_scale, 0.0, 4.0)
 	var flash_color: Color = SCOREBOARD_HEAT_COLORS.get(heat, SCOREBOARD_TEXT_COLOR)
 	var outline_color: Color = SCOREBOARD_HEAT_OUTLINES.get(heat, SCOREBOARD_OUTLINE_COLOR)
 	var style := make_score_panel_style(
-		SCOREBOARD_BASE_COLOR.lerp(flash_color, 0.16),
+		SCOREBOARD_BASE_COLOR.lerp(flash_color, 0.16 * clampf(effect_scale, 0.0, 1.0)),
 		flash_color,
-		2 + clampi(intensity, 1, 4)
+		2 + int(ceil(scaled_intensity))
 	)
 	score_panel.add_theme_stylebox_override("panel", style)
 	score_label.add_theme_color_override("font_color", flash_color)
 	score_label.add_theme_color_override("font_outline_color", outline_color)
-	score_label.add_theme_constant_override("outline_size", 2 + clampi(intensity, 1, 4))
+	score_label.add_theme_constant_override("outline_size", 2 + int(ceil(scaled_intensity)))
 	score_glow_label.add_theme_color_override("font_color", flash_color)
 	score_glow_label.add_theme_color_override("font_outline_color", flash_color)
-	score_glow_label.modulate.a = 0.72
+	score_glow_label.modulate.a = lerpf(0.46, 0.72, clampf(effect_scale, 0.0, 1.0))
 
 	score_flash_tween = create_tween()
-	score_flash_tween.tween_interval(0.18 + 0.05 * float(clampi(intensity, 1, 4)))
+	score_flash_tween.tween_interval(0.18 + 0.05 * scaled_intensity)
 	score_flash_tween.tween_callback(func() -> void:
 		apply_score_panel_style()
 	)

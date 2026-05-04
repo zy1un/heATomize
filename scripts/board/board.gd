@@ -10,6 +10,7 @@ const BoardPresets = preload("res://scripts/board/board_presets.gd")
 const BoardRules = preload("res://scripts/board/board_rules.gd")
 const BoardScoring = preload("res://scripts/board/board_scoring.gd")
 const BoardTurns = preload("res://scripts/board/board_turns.gd")
+const GameFeel = preload("res://scripts/core/game_feel.gd")
 
 const GRID_SIZE := 9
 const GRID_SIDE := 66

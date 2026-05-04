@@ -9,6 +9,7 @@ extends Node2D
 @export var elimination_seconds: float = 0.72
 
 const PIXEL_FONT: FontFile = preload("res://assets/fonts/PressStart2P-Regular.ttf")
+const GameFeel = preload("res://scripts/core/game_feel.gd")
 
 @onready var visual: ColorRect = $Visual
 @onready var heat_label: Label = %HeatLabel
@@ -96,19 +97,27 @@ func play_elimination_feedback() -> void:
 	spawn_elimination_shockwave()
 	spawn_pixel_fragments()
 
+	var effect_scale := clampf(GameFeel.get_flash_scale(), 0.0, 2.0)
 	feedback_tween = create_tween()
 	feedback_tween.set_parallel(true)
-	feedback_tween.tween_property(self, "scale", Vector2.ONE * 1.25, elimination_seconds * 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	feedback_tween.tween_property(self, "scale", Vector2.ONE * (1.0 + 0.25 * effect_scale), elimination_seconds * 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	feedback_tween.tween_property(heat_label, "modulate:a", 0.0, elimination_seconds * 0.22)
 	feedback_tween.chain().tween_property(self, "scale", Vector2.ONE * 0.15, elimination_seconds * 0.5).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
 	feedback_tween.parallel().tween_property(self, "modulate:a", 0.0, elimination_seconds * 0.5)
 
 func play_color_flash(flash_color: Color, duration: float, target_scale: float) -> void:
 	stop_feedback()
+	var effect_scale := clampf(GameFeel.get_flash_scale(), 0.0, 2.0)
+	if effect_scale <= 0.0:
+		apply_colors(base_fill_color, base_outline_color)
+		scale = Vector2.ONE
+		set_selected(is_selected)
+		return
+
 	is_feedback_active = true
-	var selected_scale := Vector2.ONE * target_scale
+	var selected_scale := Vector2.ONE * (1.0 + (target_scale - 1.0) * effect_scale)
 	scale = selected_scale
-	apply_colors(flash_color, base_outline_color)
+	apply_colors(base_fill_color.lerp(flash_color, clampf(effect_scale, 0.0, 1.0)), base_outline_color)
 
 	feedback_tween = create_tween()
 	feedback_tween.set_parallel(true)
@@ -172,7 +181,11 @@ func spawn_pixel_fragments() -> void:
 	if parent_node == null:
 		return
 
-	var fragment_count := 22
+	var effect_scale := clampf(GameFeel.get_flash_scale(), 0.0, 1.0)
+	var fragment_count := int(round(22.0 * effect_scale))
+	if fragment_count <= 0:
+		return
+
 	for index in range(fragment_count):
 		var fragment := ColorRect.new()
 		var fragment_size := randf_range(4.0, 7.0)
@@ -200,6 +213,10 @@ func spawn_elimination_shockwave() -> void:
 	if parent_node == null:
 		return
 
+	var effect_scale := clampf(GameFeel.get_flash_scale(), 0.0, 1.0)
+	if effect_scale <= 0.0:
+		return
+
 	var ring_count := 2
 	for ring_index in range(ring_count):
 		var ring := ColorRect.new()
@@ -225,7 +242,7 @@ func spawn_elimination_shockwave() -> void:
 		panel.size = ring.size
 		panel.add_theme_stylebox_override("panel", ring_style)
 		ring.add_child(panel)
-		ring.modulate.a = 0.82 - float(ring_index) * 0.22
+		ring.modulate.a = (0.82 - float(ring_index) * 0.22) * effect_scale
 		ring.scale = Vector2.ONE * (0.38 + float(ring_index) * 0.12)
 
 		var delay := float(ring_index) * 0.045

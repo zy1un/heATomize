@@ -1,6 +1,7 @@
 extends SceneTree
 
 const MAIN_SCENE := preload("res://scenes/Main.tscn")
+const GameFeel = preload("res://scripts/core/game_feel.gd")
 
 
 func _init() -> void:
@@ -28,6 +29,10 @@ func _init() -> void:
 	await create_timer(0.2).timeout
 	ball_node.play_aftershock_feedback()
 	await create_timer(0.24).timeout
+	GameFeel.set_effect_scales(0.0, 0.0, 0.0)
+	ball_node.play_heat_feedback()
+	await create_timer(0.05).timeout
+	GameFeel.reset_effect_scales()
 
 	print("Animation smoke tests passed.")
 	quit(0)
