@@ -2,7 +2,6 @@ extends SceneTree
 
 const MAIN_SCENE := preload("res://scenes/Main.tscn")
 const GameFeel = preload("res://scripts/core/game_feel.gd")
-const ShockwaveEffect = preload("res://scripts/effects/shockwave_effect.gd")
 
 
 func _init() -> void:
@@ -43,8 +42,8 @@ func _init() -> void:
 
 func count_shockwaves(root: Node) -> int:
 	var count := 0
-	for child in root.find_children("*", "ShockwaveEffect", true, false):
-		if child is ShockwaveEffect:
+	for child in root.find_children("ShockwaveEffect*", "", true, false):
+		if child.is_in_group("shockwave_effects"):
 			count += 1
 	return count
 

@@ -43,11 +43,13 @@ static func spawn(
 	visual_scale: float,
 	wave_mode: Mode = Mode.ELIMINATION,
 	source_heat: int = 1
-) -> ShockwaveEffect:
+) -> Node:
 	if parent == null or visual_scale <= 0.0:
 		return null
 
-	var effect := ShockwaveEffect.new()
+	var effect := new()
+	effect.name = "ShockwaveEffect"
+	effect.add_to_group("shockwave_effects")
 	effect.position = origin
 	effect.radius = ball_radius
 	effect.fill_color = ball_fill_color
