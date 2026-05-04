@@ -740,6 +740,8 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 			})
 			emit_status("Chain " + str(current_chain) + ": cleared " + str(eliminated_cells.size()))
 			effects.play_elimination_feedback(eliminated_cells, ball_nodes)
+			if group_heat >= 4:
+				GameFeel.hitstop(0.08 if group_heat >= 5 else 0.05)
 			await get_tree().create_timer(ELIMINATION_FEEDBACK_SECONDS).timeout
 			if not is_turn_generation_current(turn_generation):
 				return false
@@ -766,6 +768,7 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 				if not is_turn_generation_current(turn_generation):
 					return false
 				apply_heat_updates(aftershock_updates, "Aftershock")
+				GameFeel.screen_shake(self, 4.0, 0.18)
 				await get_tree().create_timer(SYSTEM_PHASE_PAUSE_SECONDS).timeout
 				if not is_turn_generation_current(turn_generation):
 					return false
@@ -927,8 +930,15 @@ func check_game_over() -> void:
 	game_over = true
 	selected_cell = Vector2i(-1, -1)
 	preview_path.clear()
+	_play_game_over_effects()
 	emit_status("Game over")
 	print("Game over: no reachable moves remain.")
+
+func _play_game_over_effects() -> void:
+	GameFeel.hitstop(0.35, 0.05)
+	GameFeel.screen_shake(self, 8.0, 0.6)
+	var tween := create_tween()
+	tween.tween_property(self, "modulate", Color(0.4, 0.4, 0.4, 1.0), 0.8).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 func set_ball_selected(grid_pos: Vector2i, selected: bool) -> void:
 	var ball_node = ball_nodes.get(grid_pos)
@@ -993,6 +1003,7 @@ func restart_game() -> void:
 	queue_redraw()
 
 func reset_runtime_state() -> void:
+	modulate = Color.WHITE
 	advance_turn_generation()
 	score_event.emit("reset", {
 		"turn_generation": _turn_generation,
