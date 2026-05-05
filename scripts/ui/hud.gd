@@ -7,6 +7,7 @@ signal move_preview_changed(enabled: bool)
 signal chaos_mode_changed(enabled: bool)
 
 const PIXEL_FONT: FontFile = preload("res://assets/fonts/PressStart2P-Regular.ttf")
+const UI_FONT: FontFile = preload("res://assets/fonts/VT323-Regular.ttf")
 const GameFeel = preload("res://scripts/core/game_feel.gd")
 
 const PREVIEW_COLORS := {
@@ -388,9 +389,10 @@ func apply_preset_panel_style() -> void:
 
 
 func apply_popup_style(popup: PopupMenu) -> void:
+	popup.add_theme_font_override("font", UI_FONT)
 	popup.add_theme_color_override("font_color", Color8(245, 240, 235))
 	popup.add_theme_color_override("font_hover_color", Color8(255, 226, 130))
-	popup.add_theme_font_size_override("font_size", 16)
+	popup.add_theme_font_size_override("font_size", 20)
 	popup.add_theme_constant_override("v_separation", 8)
 	popup.add_theme_constant_override("h_separation", 16)
 
@@ -465,7 +467,8 @@ func build_rules_overlay() -> void:
 
 	var title := Label.new()
 	title.text = "Rules"
-	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_font_override("font", UI_FONT)
+	title.add_theme_font_size_override("font_size", 34)
 	title.add_theme_color_override("font_color", Color8(255, 210, 92))
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header_row.add_child(title)
@@ -481,7 +484,8 @@ func build_rules_overlay() -> void:
 	body.fit_content = false
 	body.scroll_active = true
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_theme_font_size_override("normal_font_size", 18)
+	body.add_theme_font_override("normal_font", UI_FONT)
+	body.add_theme_font_size_override("normal_font_size", 22)
 	body.add_theme_color_override("default_color", Color8(245, 240, 235))
 	body.text = get_rules_text()
 	vbox.add_child(body)
@@ -563,8 +567,13 @@ func apply_stats_label_style() -> void:
 	for label: Label in [turn_label, balls_label, cleared_label, chain_label]:
 		if label == null:
 			continue
-		label.add_theme_font_size_override("font_size", 18)
+		label.add_theme_font_override("font", UI_FONT)
+		label.add_theme_font_size_override("font_size", 22)
 		label.add_theme_color_override("font_color", STAT_VALUE_COLOR)
+	if next_label != null:
+		next_label.add_theme_font_override("font", UI_FONT)
+	if state_label != null:
+		state_label.add_theme_font_override("font", UI_FONT)
 
 
 func apply_button_style(button: Button) -> void:
@@ -586,6 +595,8 @@ func apply_button_style(button: Button) -> void:
 	button.add_theme_stylebox_override("normal", normal_style)
 	button.add_theme_stylebox_override("hover", hover_style)
 	button.add_theme_stylebox_override("pressed", press_style)
+	button.add_theme_font_override("font", UI_FONT)
+	button.add_theme_font_size_override("font_size", 20)
 	button.add_theme_color_override("font_color", Color8(245, 240, 235))
 	button.add_theme_color_override("font_hover_color", Color8(255, 230, 160))
 	if not button.mouse_entered.is_connected(_on_button_mouse_entered):
@@ -625,7 +636,8 @@ func _animate_button_press(button: Button, pressed: bool) -> void:
 
 
 func apply_toggle_style(toggle: CheckButton) -> void:
-	toggle.add_theme_font_size_override("font_size", 15)
+	toggle.add_theme_font_override("font", UI_FONT)
+	toggle.add_theme_font_size_override("font_size", 18)
 	_update_toggle_color(toggle)
 	toggle.toggled.connect(func(_enabled: bool) -> void: _update_toggle_color(toggle))
 
@@ -653,8 +665,9 @@ func _play_entrance_animation() -> void:
 
 
 func _play_game_over_enter() -> void:
+	state_label.add_theme_font_override("font", UI_FONT)
 	state_label.add_theme_color_override("font_color", GAME_OVER_COLOR)
-	state_label.add_theme_font_size_override("font_size", 26)
+	state_label.add_theme_font_size_override("font_size", 30)
 	state_label.pivot_offset = state_label.size * 0.5
 	var tween := state_label.create_tween()
 	tween.tween_property(state_label, "scale", Vector2.ONE * 1.12, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
