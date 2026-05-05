@@ -742,8 +742,9 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 			})
 			emit_status("Chain " + str(current_chain) + ": cleared " + str(eliminated_cells.size()))
 			effects.play_elimination_feedback(eliminated_cells, ball_nodes)
+			play_elimination_shake(group_heat, eliminated_cells.size())
 			if group_heat >= 4:
-				play_elimination_impact(group_heat, turn_generation)
+				play_elimination_hitstop(group_heat, turn_generation)
 			await get_tree().create_timer(ELIMINATION_FEEDBACK_SECONDS).timeout
 			if not is_turn_generation_current(turn_generation):
 				return false
@@ -792,7 +793,12 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 	print("System phase stopped after max cycle limit: ", MAX_SYSTEM_CYCLES)
 	return true
 
-func play_elimination_impact(group_heat: int, turn_generation: int) -> void:
+func play_elimination_shake(group_heat: int, eliminated_count: int) -> void:
+	var heat_bonus := 0.45 if group_heat >= 5 else 0.0
+	var intensity := clampf(2.4 + float(eliminated_count) * 0.22 + heat_bonus, 2.4, 4.6)
+	GameFeel.screen_shake(self, intensity, 0.16)
+
+func play_elimination_hitstop(group_heat: int, turn_generation: int) -> void:
 	await get_tree().create_timer(ELIMINATION_IMPACT_DELAY_SECONDS).timeout
 	if not is_turn_generation_current(turn_generation):
 		return
