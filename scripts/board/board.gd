@@ -24,6 +24,7 @@ const NEW_BALL_MAX_HEAT := 3
 const MAX_SYSTEM_CYCLES := 64
 const ELIMINATION_FEEDBACK_SECONDS := 0.72
 const SYSTEM_PHASE_PAUSE_SECONDS := 0.18
+const ELIMINATION_IMPACT_DELAY_SECONDS := 0.08
 const SPAWN_STAGGER_SECONDS := 0.09
 const SCORE_FEEDBACK_TIMEOUT_SECONDS := 5.0
 const SCORE_FEEDBACK_POLL_SECONDS := 0.05
@@ -742,7 +743,7 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 			emit_status("Chain " + str(current_chain) + ": cleared " + str(eliminated_cells.size()))
 			effects.play_elimination_feedback(eliminated_cells, ball_nodes)
 			if group_heat >= 4:
-				GameFeel.hitstop(0.08 if group_heat >= 5 else 0.05)
+				play_elimination_impact(group_heat, turn_generation)
 			await get_tree().create_timer(ELIMINATION_FEEDBACK_SECONDS).timeout
 			if not is_turn_generation_current(turn_generation):
 				return false
@@ -769,7 +770,7 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 				if not is_turn_generation_current(turn_generation):
 					return false
 				apply_heat_updates(aftershock_updates, "Aftershock")
-				GameFeel.screen_shake(self, 4.0, 0.18)
+				play_aftershock_impact(aftershock_updates.size())
 				await get_tree().create_timer(SYSTEM_PHASE_PAUSE_SECONDS).timeout
 				if not is_turn_generation_current(turn_generation):
 					return false
@@ -790,6 +791,16 @@ func resolve_system_turn(turn_generation: int = -1) -> bool:
 
 	print("System phase stopped after max cycle limit: ", MAX_SYSTEM_CYCLES)
 	return true
+
+func play_elimination_impact(group_heat: int, turn_generation: int) -> void:
+	await get_tree().create_timer(ELIMINATION_IMPACT_DELAY_SECONDS).timeout
+	if not is_turn_generation_current(turn_generation):
+		return
+	GameFeel.hitstop(0.05 if group_heat >= 5 else 0.03, 0.08)
+
+func play_aftershock_impact(update_count: int) -> void:
+	var intensity := clampf(2.0 + float(update_count) * 0.35, 2.0, 4.0)
+	GameFeel.screen_shake(self, intensity, 0.12)
 
 func apply_heat_updates(heat_updates: Array[Dictionary], label: String) -> void:
 	for update in heat_updates:
