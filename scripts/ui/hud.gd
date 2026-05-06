@@ -255,10 +255,8 @@ func create_preview_token(heat: int) -> Control:
 	var diameter := PREVIEW_BALL_RADIUS * 2.0
 	var container := Control.new()
 	container.custom_minimum_size = Vector2(diameter, diameter)
-	container.size = Vector2(diameter, diameter)
 
 	var visual := ColorRect.new()
-	visual.position = Vector2(-PREVIEW_BALL_RADIUS, -PREVIEW_BALL_RADIUS)
 	visual.size = Vector2(diameter, diameter)
 	visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var mat := ShaderMaterial.new()
@@ -274,8 +272,7 @@ func create_preview_token(heat: int) -> Control:
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.add_theme_font_override("font", PIXEL_FONT)
 	label.add_theme_font_size_override("font_size", 16)
-	label.position = Vector2(-PREVIEW_BALL_RADIUS, -PREVIEW_BALL_RADIUS * 0.62)
-	label.size = Vector2(diameter, PREVIEW_BALL_RADIUS * 1.24)
+	label.anchors_preset = Control.PRESET_FULL_RECT
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if heat >= 4:
 		label.add_theme_color_override("font_color", Color8(42, 30, 18))
