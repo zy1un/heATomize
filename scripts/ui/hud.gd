@@ -96,6 +96,12 @@ var score_scanline_nodes: Array[ColorRect] = []
 var game_over_pulse_time: float = 0.0
 var is_game_over: bool = false
 
+var _preview_tokens: Array[Control] = []
+var _selected_preview_index: int = -1
+var _preview_pulse_time: float = 0.0
+const PREVIEW_PULSE_SPEED := 3.2
+const PREVIEW_PULSE_SCALE := 1.08
+
 
 func _ready() -> void:
 	apply_panel_style()
@@ -116,6 +122,7 @@ func _ready() -> void:
 	rules_button.pressed.connect(show_rules_overlay)
 	show_heat_toggle.toggled.connect(func(enabled: bool) -> void:
 		show_heat_labels_changed.emit(enabled)
+		update_preview_heat_labels()
 		animate_toggle_pulse(show_heat_toggle))
 	move_preview_toggle.toggled.connect(func(enabled: bool) -> void:
 		move_preview_changed.emit(enabled)
@@ -140,6 +147,9 @@ func _process(delta: float) -> void:
 	if is_game_over:
 		game_over_pulse_time += delta * GAME_OVER_PULSE_SPEED
 		_update_game_over_pulse()
+	if _selected_preview_index >= 0:
+		_preview_pulse_time += delta * PREVIEW_PULSE_SPEED
+		_update_preview_pulse()
 
 
 func update_status(snapshot: Dictionary) -> void:
@@ -243,22 +253,30 @@ func flash_scoreboard(heat: int, intensity: int = 1) -> void:
 
 
 func update_next_preview(next_heats: Variant) -> void:
+	_deselect_preview()
 	for child in next_preview_bar.get_children():
 		child.queue_free()
+	_preview_tokens.clear()
 
 	for heat_value in next_heats:
 		var heat := int(heat_value)
-		next_preview_bar.add_child(create_preview_token(heat))
+		var token := create_preview_token(heat)
+		_preview_tokens.append(token)
+		next_preview_bar.add_child(token)
 
 
 func create_preview_token(heat: int) -> Control:
 	var diameter := PREVIEW_BALL_RADIUS * 2.0
 	var container := Control.new()
 	container.custom_minimum_size = Vector2(diameter, diameter)
+	container.mouse_filter = Control.MOUSE_FILTER_STOP
+	container.set_meta("heat", heat)
+	container.set_meta("selected", false)
 
 	var visual := ColorRect.new()
 	visual.size = Vector2(diameter, diameter)
 	visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	visual.name = "Visual"
 	var mat := ShaderMaterial.new()
 	mat.shader = BALL_SHADER
 	mat.set_shader_parameter("fill_color", HEAT_FILL_COLORS.get(heat, Color.WHITE))
@@ -274,6 +292,7 @@ func create_preview_token(heat: int) -> Control:
 	label.add_theme_font_size_override("font_size", 16)
 	label.anchors_preset = Control.PRESET_FULL_RECT
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.name = "HeatLabel"
 	if heat >= 4:
 		label.add_theme_color_override("font_color", Color8(42, 30, 18))
 		label.add_theme_color_override("font_outline_color", Color8(255, 248, 220, 180))
@@ -281,9 +300,84 @@ func create_preview_token(heat: int) -> Control:
 		label.add_theme_color_override("font_color", Color8(248, 242, 232))
 		label.add_theme_color_override("font_outline_color", Color8(36, 32, 28, 210))
 	label.add_theme_constant_override("outline_size", 2)
+	label.visible = show_heat_toggle != null and show_heat_toggle.button_pressed
 	container.add_child(label)
 
+	container.gui_input.connect(_on_preview_token_input.bind(container))
 	return container
+
+
+func _on_preview_token_input(event: InputEvent, token: Control) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		var index := _preview_tokens.find(token)
+		if index < 0:
+			return
+		if _selected_preview_index == index:
+			_deselect_preview()
+		else:
+			_select_preview(index)
+
+
+func _select_preview(index: int) -> void:
+	if _selected_preview_index >= 0:
+		var prev := _preview_tokens[_selected_preview_index]
+		if is_instance_valid(prev):
+			prev.set_meta("selected", false)
+			prev.scale = Vector2.ONE
+			var prev_visual = prev.get_node_or_null("Visual")
+			if prev_visual != null and prev_visual.material is ShaderMaterial:
+				var mat := prev_visual.material as ShaderMaterial
+				var h := int(prev.get_meta("heat"))
+				mat.set_shader_parameter("fill_color", HEAT_FILL_COLORS.get(h, Color.WHITE))
+				mat.set_shader_parameter("outline_color", HEAT_OUTLINE_COLORS.get(h, Color.BLACK))
+	_selected_preview_index = index
+	_preview_pulse_time = 0.0
+	var token := _preview_tokens[index]
+	if is_instance_valid(token):
+		token.set_meta("selected", true)
+		var visual = token.get_node_or_null("Visual")
+		if visual != null and visual.material is ShaderMaterial:
+			var mat := visual.material as ShaderMaterial
+			var h := int(token.get_meta("heat"))
+			mat.set_shader_parameter("fill_color", HEAT_OUTLINE_COLORS.get(h, Color.BLACK))
+			mat.set_shader_parameter("outline_color", HEAT_FILL_COLORS.get(h, Color.WHITE))
+
+
+func _deselect_preview() -> void:
+	if _selected_preview_index >= 0 and _selected_preview_index < _preview_tokens.size():
+		var token := _preview_tokens[_selected_preview_index]
+		if is_instance_valid(token):
+			token.set_meta("selected", false)
+			token.scale = Vector2.ONE
+			var visual = token.get_node_or_null("Visual")
+			if visual != null and visual.material is ShaderMaterial:
+				var mat := visual.material as ShaderMaterial
+				var h := int(token.get_meta("heat"))
+				mat.set_shader_parameter("fill_color", HEAT_FILL_COLORS.get(h, Color.WHITE))
+				mat.set_shader_parameter("outline_color", HEAT_OUTLINE_COLORS.get(h, Color.BLACK))
+	_selected_preview_index = -1
+
+
+func _update_preview_pulse() -> void:
+	if _selected_preview_index < 0 or _selected_preview_index >= _preview_tokens.size():
+		return
+	var token := _preview_tokens[_selected_preview_index]
+	if not is_instance_valid(token):
+		_selected_preview_index = -1
+		return
+	var pulse: float = 0.5 + 0.5 * sin(_preview_pulse_time * TAU)
+	var s: float = lerpf(1.0, PREVIEW_PULSE_SCALE, pulse)
+	token.scale = Vector2.ONE * s
+
+
+func update_preview_heat_labels() -> void:
+	var visible := show_heat_toggle != null and show_heat_toggle.button_pressed
+	for token in _preview_tokens:
+		if not is_instance_valid(token):
+			continue
+		var label = token.get_node_or_null("HeatLabel")
+		if label != null:
+			label.visible = visible
 
 
 func apply_panel_style() -> void:
