@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3 uid="uid://hudheatomize01"]
 
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1_hud"]
-[ext_resource type="Texture2D" path="res://assets/branding/heatomize_logo.png" id="2_logo"]
+[ext_resource type="Texture2D" path="res://assets/branding/heatomize_wordmark_transparent.png" id="2_logo"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
@@ -29,7 +29,7 @@ layout_mode = 2
 texture = ExtResource("2_logo")
 expand_mode = 3
 stretch_mode = 5
-custom_minimum_size = Vector2(0, 54)
+custom_minimum_size = Vector2(0, 64)
 
 [node name="StateLabel" type="Label" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
