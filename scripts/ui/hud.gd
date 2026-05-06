@@ -8,22 +8,24 @@ signal chaos_mode_changed(enabled: bool)
 
 const PIXEL_FONT: FontFile = preload("res://assets/fonts/PressStart2P-Regular.ttf")
 const UI_FONT: FontFile = preload("res://assets/fonts/VT323-Regular.ttf")
+const BALL_SHADER: Shader = preload("res://assets/shaders/heat_ball.gdshader")
 const GameFeel = preload("res://scripts/core/game_feel.gd")
 
-const PREVIEW_COLORS := {
+const HEAT_FILL_COLORS := {
 	1: Color8(201, 205, 209),
 	2: Color8(141, 35, 28),
 	3: Color8(240, 90, 36),
 	4: Color8(236, 158, 20),
 	5: Color8(255, 255, 250),
 }
-const PREVIEW_OUTLINES := {
+const HEAT_OUTLINE_COLORS := {
 	1: Color8(61, 67, 74),
 	2: Color8(217, 221, 226),
 	3: Color8(166, 30, 22),
 	4: Color8(94, 46, 0),
 	5: Color8(255, 76, 32),
 }
+const PREVIEW_BALL_RADIUS := 22.0
 const SCOREBOARD_BASE_COLOR := Color8(13, 12, 11, 248)
 const SCOREBOARD_BORDER_COLOR := Color8(255, 143, 34, 190)
 const SCOREBOARD_TEXT_COLOR := Color8(255, 174, 54)
@@ -250,29 +252,41 @@ func update_next_preview(next_heats: Variant) -> void:
 
 
 func create_preview_token(heat: int) -> Control:
-	var token := PanelContainer.new()
-	token.custom_minimum_size = Vector2(52, 52)
-	var style := StyleBoxFlat.new()
-	style.bg_color = PREVIEW_COLORS.get(heat, Color.WHITE)
-	style.border_color = PREVIEW_OUTLINES.get(heat, Color.BLACK)
-	style.set_border_width_all(3)
-	style.corner_radius_top_left = 26
-	style.corner_radius_top_right = 26
-	style.corner_radius_bottom_left = 26
-	style.corner_radius_bottom_right = 26
-	token.add_theme_stylebox_override("panel", style)
+	var diameter := PREVIEW_BALL_RADIUS * 2.0
+	var container := Control.new()
+	container.custom_minimum_size = Vector2(diameter, diameter)
+	container.size = Vector2(diameter, diameter)
+
+	var visual := ColorRect.new()
+	visual.position = Vector2(-PREVIEW_BALL_RADIUS, -PREVIEW_BALL_RADIUS)
+	visual.size = Vector2(diameter, diameter)
+	visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mat := ShaderMaterial.new()
+	mat.shader = BALL_SHADER
+	mat.set_shader_parameter("fill_color", HEAT_FILL_COLORS.get(heat, Color.WHITE))
+	mat.set_shader_parameter("outline_color", HEAT_OUTLINE_COLORS.get(heat, Color.BLACK))
+	visual.material = mat
+	container.add_child(visual)
 
 	var label := Label.new()
 	label.text = str(heat)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 22)
+	label.add_theme_font_override("font", PIXEL_FONT)
+	label.add_theme_font_size_override("font_size", 16)
+	label.position = Vector2(-PREVIEW_BALL_RADIUS, -PREVIEW_BALL_RADIUS * 0.62)
+	label.size = Vector2(diameter, PREVIEW_BALL_RADIUS * 1.24)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if heat >= 4:
 		label.add_theme_color_override("font_color", Color8(42, 30, 18))
+		label.add_theme_color_override("font_outline_color", Color8(255, 248, 220, 180))
 	else:
 		label.add_theme_color_override("font_color", Color8(248, 242, 232))
-	token.add_child(label)
-	return token
+		label.add_theme_color_override("font_outline_color", Color8(36, 32, 28, 210))
+	label.add_theme_constant_override("outline_size", 2)
+	container.add_child(label)
+
+	return container
 
 
 func apply_panel_style() -> void:
