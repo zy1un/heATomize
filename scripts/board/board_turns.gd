@@ -50,6 +50,32 @@ func generate_spawn_plan_with_heats(
 	return plan
 
 
+func generate_preview_spawn_plan(
+	board_state: Array,
+	grid_size: int,
+	heats: Array[int],
+	exclude_cells: Array[Vector2i] = []
+) -> Array[Dictionary]:
+	var empty_cells: Array[Vector2i] = get_empty_cells(board_state, grid_size)
+	for cell in exclude_cells:
+		empty_cells.erase(cell)
+	if empty_cells.is_empty() or heats.is_empty():
+		return []
+
+	var spawn_count: int = mini(heats.size(), empty_cells.size())
+	var plan: Array[Dictionary] = []
+	for index in range(spawn_count):
+		var random_empty_index: int = rng.randi_range(0, empty_cells.size() - 1)
+		var cell: Vector2i = empty_cells[random_empty_index]
+		plan.append({
+			"cell": cell,
+			"heat": heats[index],
+		})
+		empty_cells.remove_at(random_empty_index)
+
+	return plan
+
+
 func get_empty_cells(board_state: Array, grid_size: int) -> Array[Vector2i]:
 	var empty_cells: Array[Vector2i] = []
 	for y in range(grid_size):

@@ -7,22 +7,25 @@ signal move_preview_changed(enabled: bool)
 signal chaos_mode_changed(enabled: bool)
 
 const PIXEL_FONT: FontFile = preload("res://assets/fonts/PressStart2P-Regular.ttf")
+const UI_FONT: FontFile = preload("res://assets/fonts/VT323-Regular.ttf")
+const BALL_SHADER: Shader = preload("res://assets/shaders/heat_ball.gdshader")
 const GameFeel = preload("res://scripts/core/game_feel.gd")
 
-const PREVIEW_COLORS := {
+const HEAT_FILL_COLORS := {
 	1: Color8(201, 205, 209),
 	2: Color8(141, 35, 28),
 	3: Color8(240, 90, 36),
 	4: Color8(236, 158, 20),
 	5: Color8(255, 255, 250),
 }
-const PREVIEW_OUTLINES := {
+const HEAT_OUTLINE_COLORS := {
 	1: Color8(61, 67, 74),
 	2: Color8(217, 221, 226),
 	3: Color8(166, 30, 22),
 	4: Color8(94, 46, 0),
 	5: Color8(255, 76, 32),
 }
+const PREVIEW_BALL_RADIUS := 22.0
 const SCOREBOARD_BASE_COLOR := Color8(13, 12, 11, 248)
 const SCOREBOARD_BORDER_COLOR := Color8(255, 143, 34, 190)
 const SCOREBOARD_TEXT_COLOR := Color8(255, 174, 54)
@@ -42,6 +45,23 @@ const SCOREBOARD_HEAT_OUTLINES := {
 	4: Color8(90, 60, 0),
 	5: Color8(180, 50, 20),
 }
+
+const PANEL_BG := Color8(34, 31, 29, 232)
+const PANEL_BORDER := Color8(255, 210, 92, 150)
+const BUTTON_NORMAL_BG := Color8(72, 62, 48)
+const BUTTON_HOVER_BG := Color8(96, 78, 52)
+const BUTTON_PRESS_BG := Color8(56, 48, 36)
+const BUTTON_BORDER := Color8(176, 128, 58)
+const TOGGLE_CHECKED_COLOR := Color8(255, 210, 92)
+const TOGGLE_UNCHECKED_COLOR := Color8(160, 148, 130)
+const STAT_VALUE_COLOR := Color8(245, 240, 235)
+const SEPARATOR_COLOR := Color8(255, 210, 92, 60)
+const GAME_OVER_COLOR := Color8(255, 106, 78)
+const GAME_OVER_GLOW_COLOR := Color8(255, 60, 30, 120)
+
+const ENTRANCE_SLIDE_OFFSET := 42.0
+const ENTRANCE_DURATION := 0.38
+const GAME_OVER_PULSE_SPEED := 2.4
 
 @onready var turn_label: Label = %TurnLabel
 @onready var balls_label: Label = %BallsLabel
@@ -67,11 +87,20 @@ const SCOREBOARD_HEAT_OUTLINES := {
 var rules_overlay: Control
 var rules_panel: PanelContainer
 var rules_close_button: Button
+var separator: HSeparator
 var displayed_score: int = 0
 var actual_score: int = 0
 var score_tween: Tween
 var score_flash_tween: Tween
 var score_scanline_nodes: Array[ColorRect] = []
+var game_over_pulse_time: float = 0.0
+var is_game_over: bool = false
+
+var _preview_tokens: Array[Control] = []
+var _selected_preview_index: int = -1
+var _preview_pulse_time: float = 0.0
+const PREVIEW_PULSE_SPEED := 3.2
+const PREVIEW_PULSE_SCALE := 1.08
 
 
 func _ready() -> void:
@@ -84,14 +113,24 @@ func _ready() -> void:
 	apply_toggle_style(chaos_mode_toggle)
 	apply_score_label_style()
 	apply_preset_panel_style()
+	apply_separator_style()
+	apply_stats_label_style()
+	apply_title_style()
+	apply_settings_label_style()
 
 	restart_button.pressed.connect(func() -> void: restart_requested.emit())
 	rules_button.pressed.connect(show_rules_overlay)
-	show_heat_toggle.toggled.connect(func(enabled: bool) -> void: show_heat_labels_changed.emit(enabled))
-	move_preview_toggle.toggled.connect(func(enabled: bool) -> void: move_preview_changed.emit(enabled))
-	chaos_mode_toggle.toggled.connect(func(enabled: bool) -> void: chaos_mode_changed.emit(enabled))
+	show_heat_toggle.toggled.connect(func(enabled: bool) -> void:
+		show_heat_labels_changed.emit(enabled)
+		update_preview_heat_labels()
+		animate_toggle_pulse(show_heat_toggle))
+	move_preview_toggle.toggled.connect(func(enabled: bool) -> void:
+		move_preview_changed.emit(enabled)
+		animate_toggle_pulse(move_preview_toggle))
+	chaos_mode_toggle.toggled.connect(func(enabled: bool) -> void:
+		chaos_mode_changed.emit(enabled)
+		animate_toggle_pulse(chaos_mode_toggle))
 
-	# Preset submenu
 	var popup: PopupMenu = preset_button.get_popup()
 	popup.add_item("Cascade (F5)", 0)
 	popup.add_item("Blocked (F6)", 1)
@@ -100,6 +139,17 @@ func _ready() -> void:
 	popup.id_pressed.connect(_on_preset_selected)
 
 	build_rules_overlay()
+	_play_entrance_animation()
+	set_process(true)
+
+
+func _process(delta: float) -> void:
+	if is_game_over:
+		game_over_pulse_time += delta * GAME_OVER_PULSE_SPEED
+		_update_game_over_pulse()
+	if _selected_preview_index >= 0:
+		_preview_pulse_time += delta * PREVIEW_PULSE_SPEED
+		_update_preview_pulse()
 
 
 func update_status(snapshot: Dictionary) -> void:
@@ -115,10 +165,13 @@ func update_status(snapshot: Dictionary) -> void:
 	update_next_preview(snapshot.get("next_heats", []))
 	state_label.text = str(snapshot.get("state", "Ready"))
 
-	if bool(snapshot.get("game_over", false)):
-		state_label.add_theme_color_override("font_color", Color8(255, 106, 78))
-	else:
-		state_label.add_theme_color_override("font_color", Color8(255, 226, 130))
+	var was_game_over := is_game_over
+	is_game_over = bool(snapshot.get("game_over", false))
+	if is_game_over and not was_game_over:
+		game_over_pulse_time = 0.0
+		_play_game_over_enter()
+	elif not is_game_over and was_game_over:
+		_reset_state_label_style()
 
 
 func set_displayed_score(value: int) -> void:
@@ -200,44 +253,137 @@ func flash_scoreboard(heat: int, intensity: int = 1) -> void:
 
 
 func update_next_preview(next_heats: Variant) -> void:
+	_deselect_preview()
 	for child in next_preview_bar.get_children():
 		child.queue_free()
+	_preview_tokens.clear()
 
 	for heat_value in next_heats:
 		var heat := int(heat_value)
-		next_preview_bar.add_child(create_preview_token(heat))
+		var token := create_preview_token(heat)
+		_preview_tokens.append(token)
+		next_preview_bar.add_child(token)
 
 
 func create_preview_token(heat: int) -> Control:
-	var token := PanelContainer.new()
-	token.custom_minimum_size = Vector2(52, 52)
-	var style := StyleBoxFlat.new()
-	style.bg_color = PREVIEW_COLORS.get(heat, Color.WHITE)
-	style.border_color = PREVIEW_OUTLINES.get(heat, Color.BLACK)
-	style.set_border_width_all(3)
-	style.corner_radius_top_left = 26
-	style.corner_radius_top_right = 26
-	style.corner_radius_bottom_left = 26
-	style.corner_radius_bottom_right = 26
-	token.add_theme_stylebox_override("panel", style)
+	var diameter := PREVIEW_BALL_RADIUS * 2.0
+	var container := Control.new()
+	container.custom_minimum_size = Vector2(diameter, diameter)
+	container.mouse_filter = Control.MOUSE_FILTER_STOP
+	container.set_meta("heat", heat)
+	container.set_meta("selected", false)
+
+	var visual := ColorRect.new()
+	visual.size = Vector2(diameter, diameter)
+	visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	visual.name = "Visual"
+	var mat := ShaderMaterial.new()
+	mat.shader = BALL_SHADER
+	mat.set_shader_parameter("fill_color", HEAT_FILL_COLORS.get(heat, Color.WHITE))
+	mat.set_shader_parameter("outline_color", HEAT_OUTLINE_COLORS.get(heat, Color.BLACK))
+	visual.material = mat
+	container.add_child(visual)
 
 	var label := Label.new()
 	label.text = str(heat)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 22)
+	label.add_theme_font_override("font", PIXEL_FONT)
+	label.add_theme_font_size_override("font_size", 16)
+	label.anchors_preset = Control.PRESET_FULL_RECT
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.name = "HeatLabel"
 	if heat >= 4:
 		label.add_theme_color_override("font_color", Color8(42, 30, 18))
+		label.add_theme_color_override("font_outline_color", Color8(255, 248, 220, 180))
 	else:
 		label.add_theme_color_override("font_color", Color8(248, 242, 232))
-	token.add_child(label)
-	return token
+		label.add_theme_color_override("font_outline_color", Color8(36, 32, 28, 210))
+	label.add_theme_constant_override("outline_size", 2)
+	label.visible = show_heat_toggle != null and show_heat_toggle.button_pressed
+	container.add_child(label)
+
+	container.gui_input.connect(_on_preview_token_input.bind(container))
+	return container
+
+
+func _on_preview_token_input(event: InputEvent, token: Control) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		var index := _preview_tokens.find(token)
+		if index < 0:
+			return
+		if _selected_preview_index == index:
+			_deselect_preview()
+		else:
+			_select_preview(index)
+
+
+func _select_preview(index: int) -> void:
+	if _selected_preview_index >= 0:
+		var prev := _preview_tokens[_selected_preview_index]
+		if is_instance_valid(prev):
+			prev.set_meta("selected", false)
+			prev.scale = Vector2.ONE
+			var prev_visual = prev.get_node_or_null("Visual")
+			if prev_visual != null and prev_visual.material is ShaderMaterial:
+				var mat := prev_visual.material as ShaderMaterial
+				var h := int(prev.get_meta("heat"))
+				mat.set_shader_parameter("fill_color", HEAT_FILL_COLORS.get(h, Color.WHITE))
+				mat.set_shader_parameter("outline_color", HEAT_OUTLINE_COLORS.get(h, Color.BLACK))
+	_selected_preview_index = index
+	_preview_pulse_time = 0.0
+	var token := _preview_tokens[index]
+	if is_instance_valid(token):
+		token.set_meta("selected", true)
+		var visual = token.get_node_or_null("Visual")
+		if visual != null and visual.material is ShaderMaterial:
+			var mat := visual.material as ShaderMaterial
+			var h := int(token.get_meta("heat"))
+			mat.set_shader_parameter("fill_color", HEAT_OUTLINE_COLORS.get(h, Color.BLACK))
+			mat.set_shader_parameter("outline_color", HEAT_FILL_COLORS.get(h, Color.WHITE))
+
+
+func _deselect_preview() -> void:
+	if _selected_preview_index >= 0 and _selected_preview_index < _preview_tokens.size():
+		var token := _preview_tokens[_selected_preview_index]
+		if is_instance_valid(token):
+			token.set_meta("selected", false)
+			token.scale = Vector2.ONE
+			var visual = token.get_node_or_null("Visual")
+			if visual != null and visual.material is ShaderMaterial:
+				var mat := visual.material as ShaderMaterial
+				var h := int(token.get_meta("heat"))
+				mat.set_shader_parameter("fill_color", HEAT_FILL_COLORS.get(h, Color.WHITE))
+				mat.set_shader_parameter("outline_color", HEAT_OUTLINE_COLORS.get(h, Color.BLACK))
+	_selected_preview_index = -1
+
+
+func _update_preview_pulse() -> void:
+	if _selected_preview_index < 0 or _selected_preview_index >= _preview_tokens.size():
+		return
+	var token := _preview_tokens[_selected_preview_index]
+	if not is_instance_valid(token):
+		_selected_preview_index = -1
+		return
+	var pulse: float = 0.5 + 0.5 * sin(_preview_pulse_time * TAU)
+	var s: float = lerpf(1.0, PREVIEW_PULSE_SCALE, pulse)
+	token.scale = Vector2.ONE * s
+
+
+func update_preview_heat_labels() -> void:
+	var visible := show_heat_toggle != null and show_heat_toggle.button_pressed
+	for token in _preview_tokens:
+		if not is_instance_valid(token):
+			continue
+		var label = token.get_node_or_null("HeatLabel")
+		if label != null:
+			label.visible = visible
 
 
 func apply_panel_style() -> void:
 	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = Color8(34, 31, 29, 232)
-	panel_style.border_color = Color8(255, 210, 92, 150)
+	panel_style.bg_color = PANEL_BG
+	panel_style.border_color = PANEL_BORDER
 	panel_style.set_border_width_all(2)
 	panel_style.corner_radius_top_left = 8
 	panel_style.corner_radius_top_right = 8
@@ -275,29 +421,6 @@ func apply_score_panel_style() -> void:
 	score_glow_label.add_theme_color_override("font_outline_color", SCOREBOARD_GLOW_COLOR)
 	score_glow_label.add_theme_constant_override("outline_size", 8)
 	score_glow_label.modulate.a = 0.46
-
-
-func apply_button_style(button: Button) -> void:
-	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Color8(72, 62, 48)
-	normal_style.border_color = Color8(176, 128, 58)
-	normal_style.set_border_width_all(1)
-	normal_style.corner_radius_top_left = 6
-	normal_style.corner_radius_top_right = 6
-	normal_style.corner_radius_bottom_left = 6
-	normal_style.corner_radius_bottom_right = 6
-
-	var hover_style := normal_style.duplicate() as StyleBoxFlat
-	hover_style.bg_color = Color8(96, 78, 52)
-
-	button.add_theme_stylebox_override("normal", normal_style)
-	button.add_theme_stylebox_override("hover", hover_style)
-	button.add_theme_color_override("font_color", Color8(245, 240, 235))
-
-
-func apply_toggle_style(toggle: CheckButton) -> void:
-	toggle.add_theme_color_override("font_color", Color8(245, 240, 235))
-	toggle.add_theme_font_size_override("font_size", 15)
 
 
 func apply_score_label_style() -> void:
@@ -365,9 +488,10 @@ func apply_preset_panel_style() -> void:
 
 
 func apply_popup_style(popup: PopupMenu) -> void:
+	popup.add_theme_font_override("font", UI_FONT)
 	popup.add_theme_color_override("font_color", Color8(245, 240, 235))
 	popup.add_theme_color_override("font_hover_color", Color8(255, 226, 130))
-	popup.add_theme_font_size_override("font_size", 16)
+	popup.add_theme_font_size_override("font_size", 24)
 	popup.add_theme_constant_override("v_separation", 8)
 	popup.add_theme_constant_override("h_separation", 16)
 
@@ -442,7 +566,8 @@ func build_rules_overlay() -> void:
 
 	var title := Label.new()
 	title.text = "Rules"
-	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_font_override("font", UI_FONT)
+	title.add_theme_font_size_override("font_size", 38)
 	title.add_theme_color_override("font_color", Color8(255, 210, 92))
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header_row.add_child(title)
@@ -458,7 +583,8 @@ func build_rules_overlay() -> void:
 	body.fit_content = false
 	body.scroll_active = true
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_theme_font_size_override("normal_font_size", 18)
+	body.add_theme_font_override("normal_font", UI_FONT)
+	body.add_theme_font_size_override("normal_font_size", 26)
 	body.add_theme_color_override("default_color", Color8(245, 240, 235))
 	body.text = get_rules_text()
 	vbox.add_child(body)
@@ -490,6 +616,172 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 		hide_rules_overlay()
 		get_viewport().set_input_as_handled()
+
+
+func apply_title_style() -> void:
+	pass
+
+
+func apply_separator_style() -> void:
+	separator = panel.get_node_or_null("Margin/VBox/separator")
+	if separator == null:
+		for child in panel.get_node("Margin/VBox").get_children():
+			if child is HSeparator:
+				separator = child
+				break
+	if separator == null:
+		return
+	var sep_style := StyleBoxLine.new()
+	sep_style.color = SEPARATOR_COLOR
+	sep_style.thickness = 1
+	sep_style.content_margin_top = 4
+	sep_style.content_margin_bottom = 4
+	separator.add_theme_stylebox_override("separator", sep_style)
+
+
+func apply_stats_label_style() -> void:
+	for label: Label in [turn_label, balls_label, cleared_label, chain_label]:
+		if label == null:
+			continue
+		label.add_theme_font_override("font", UI_FONT)
+		label.add_theme_font_size_override("font_size", 26)
+		label.add_theme_color_override("font_color", STAT_VALUE_COLOR)
+	if next_label != null:
+		next_label.add_theme_font_override("font", UI_FONT)
+		next_label.add_theme_font_size_override("font_size", 26)
+	if state_label != null:
+		state_label.add_theme_font_override("font", UI_FONT)
+		state_label.add_theme_font_size_override("font_size", 26)
+
+
+func apply_settings_label_style() -> void:
+	var settings_label := panel.get_node_or_null("Margin/VBox/SettingsLabel")
+	if settings_label == null:
+		for child in panel.get_node("Margin/VBox").get_children():
+			if child is Label and child.text == "Settings":
+				settings_label = child
+				break
+	if settings_label != null:
+		settings_label.add_theme_font_override("font", UI_FONT)
+		settings_label.add_theme_font_size_override("font_size", 20)
+
+
+func apply_button_style(button: Button) -> void:
+	var normal_style := StyleBoxFlat.new()
+	normal_style.bg_color = BUTTON_NORMAL_BG
+	normal_style.border_color = BUTTON_BORDER
+	normal_style.set_border_width_all(1)
+	normal_style.corner_radius_top_left = 6
+	normal_style.corner_radius_top_right = 6
+	normal_style.corner_radius_bottom_left = 6
+	normal_style.corner_radius_bottom_right = 6
+
+	var hover_style := normal_style.duplicate() as StyleBoxFlat
+	hover_style.bg_color = BUTTON_HOVER_BG
+
+	var press_style := normal_style.duplicate() as StyleBoxFlat
+	press_style.bg_color = BUTTON_PRESS_BG
+
+	button.add_theme_stylebox_override("normal", normal_style)
+	button.add_theme_stylebox_override("hover", hover_style)
+	button.add_theme_stylebox_override("pressed", press_style)
+	button.add_theme_font_override("font", UI_FONT)
+	button.add_theme_font_size_override("font_size", 24)
+	button.add_theme_color_override("font_color", Color8(245, 240, 235))
+	button.add_theme_color_override("font_hover_color", Color8(255, 230, 160))
+	if not button.mouse_entered.is_connected(_on_button_mouse_entered):
+		button.mouse_entered.connect(_on_button_mouse_entered.bind(button))
+		button.mouse_exited.connect(_on_button_mouse_exited.bind(button))
+		button.button_down.connect(_on_button_down.bind(button))
+		button.button_up.connect(_on_button_up.bind(button))
+
+
+func _on_button_mouse_entered(button: Button) -> void:
+	_animate_button_hover(button, true)
+
+func _on_button_mouse_exited(button: Button) -> void:
+	_animate_button_hover(button, false)
+
+func _on_button_down(button: Button) -> void:
+	_animate_button_press(button, true)
+
+func _on_button_up(button: Button) -> void:
+	_animate_button_press(button, false)
+
+
+func _animate_button_hover(button: Button, entering: bool) -> void:
+	var tween := button.create_tween()
+	if entering:
+		tween.tween_property(button, "scale", Vector2.ONE * 1.04, 0.10).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	else:
+		tween.tween_property(button, "scale", Vector2.ONE, 0.08).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+func _animate_button_press(button: Button, pressed: bool) -> void:
+	var tween := button.create_tween()
+	if pressed:
+		tween.tween_property(button, "scale", Vector2.ONE * 0.96, 0.06).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	else:
+		tween.tween_property(button, "scale", Vector2.ONE * 1.04, 0.08).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+func apply_toggle_style(toggle: CheckButton) -> void:
+	toggle.add_theme_font_override("font", UI_FONT)
+	toggle.add_theme_font_size_override("font_size", 22)
+	_update_toggle_color(toggle)
+	toggle.toggled.connect(func(_enabled: bool) -> void: _update_toggle_color(toggle))
+
+
+func _update_toggle_color(toggle: CheckButton) -> void:
+	if toggle.button_pressed:
+		toggle.add_theme_color_override("font_color", TOGGLE_CHECKED_COLOR)
+	else:
+		toggle.add_theme_color_override("font_color", TOGGLE_UNCHECKED_COLOR)
+
+
+func animate_toggle_pulse(toggle: CheckButton) -> void:
+	var tween := toggle.create_tween()
+	tween.tween_property(toggle, "scale", Vector2.ONE * 1.06, 0.08).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(toggle, "scale", Vector2.ONE, 0.10).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+
+
+func _play_entrance_animation() -> void:
+	var original_x := panel.offset_left
+	panel.offset_left = original_x + ENTRANCE_SLIDE_OFFSET
+	panel.modulate.a = 0.0
+	var tween := create_tween().set_parallel(true)
+	tween.tween_property(panel, "offset_left", original_x, ENTRANCE_DURATION).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(panel, "modulate:a", 1.0, ENTRANCE_DURATION * 0.6).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+func _play_game_over_enter() -> void:
+	state_label.add_theme_font_override("font", UI_FONT)
+	state_label.add_theme_color_override("font_color", GAME_OVER_COLOR)
+	state_label.add_theme_font_size_override("font_size", 34)
+	state_label.pivot_offset = state_label.size * 0.5
+	var tween := state_label.create_tween()
+	tween.tween_property(state_label, "scale", Vector2.ONE * 1.12, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(state_label, "scale", Vector2.ONE, 0.10).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+
+
+func _update_game_over_pulse() -> void:
+	if state_label == null:
+		return
+	var pulse: float = 0.5 + 0.5 * sin(game_over_pulse_time * TAU)
+	var glow_alpha := lerpf(0.4, 1.0, pulse)
+	state_label.add_theme_color_override("font_color",
+		GAME_OVER_COLOR.lerp(GAME_OVER_GLOW_COLOR, 1.0 - pulse))
+	state_label.add_theme_color_override("font_outline_color",
+		Color8(255, 60, 30, int(glow_alpha * 180.0)))
+	state_label.add_theme_constant_override("outline_size", int(lerpf(2, 6, pulse)))
+
+
+func _reset_state_label_style() -> void:
+	state_label.add_theme_color_override("font_color", Color8(255, 226, 130))
+	state_label.add_theme_font_size_override("font_size", 22)
+	state_label.remove_theme_color_override("font_outline_color")
+	state_label.remove_theme_constant_override("outline_size")
+	state_label.scale = Vector2.ONE
 
 
 func get_rules_text() -> String:
