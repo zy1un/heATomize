@@ -53,15 +53,12 @@ const BUTTON_BORDER := Color8(176, 128, 58)
 const TOGGLE_CHECKED_COLOR := Color8(255, 210, 92)
 const TOGGLE_UNCHECKED_COLOR := Color8(160, 148, 130)
 const STAT_VALUE_COLOR := Color8(245, 240, 235)
-const TITLE_BASE_COLOR := Color8(255, 210, 92)
-const TITLE_GLOW_COLOR := Color8(255, 140, 30, 100)
 const SEPARATOR_COLOR := Color8(255, 210, 92, 60)
 const GAME_OVER_COLOR := Color8(255, 106, 78)
 const GAME_OVER_GLOW_COLOR := Color8(255, 60, 30, 120)
 
 const ENTRANCE_SLIDE_OFFSET := 42.0
 const ENTRANCE_DURATION := 0.38
-const TITLE_SHIMMER_SPEED := 1.8
 const GAME_OVER_PULSE_SPEED := 2.4
 
 @onready var turn_label: Label = %TurnLabel
@@ -88,14 +85,12 @@ const GAME_OVER_PULSE_SPEED := 2.4
 var rules_overlay: Control
 var rules_panel: PanelContainer
 var rules_close_button: Button
-var title_label: Label
 var separator: HSeparator
 var displayed_score: int = 0
 var actual_score: int = 0
 var score_tween: Tween
 var score_flash_tween: Tween
 var score_scanline_nodes: Array[ColorRect] = []
-var title_shimmer_time: float = 0.0
 var game_over_pulse_time: float = 0.0
 var is_game_over: bool = false
 
@@ -140,8 +135,6 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	title_shimmer_time += delta * TITLE_SHIMMER_SPEED
-	_update_title_shimmer()
 	if is_game_over:
 		game_over_pulse_time += delta * GAME_OVER_PULSE_SPEED
 		_update_game_over_pulse()
@@ -521,30 +514,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func apply_title_style() -> void:
-	var children := panel.get_node_or_null("Margin/VBox")
-	if children == null:
-		return
-	for child in children.get_children():
-		if child is Label and child.text == "heATomize":
-			title_label = child
-			break
-	if title_label == null:
-		return
-	title_label.add_theme_font_override("font", PIXEL_FONT)
-	title_label.add_theme_font_size_override("font_size", 20)
-	title_label.add_theme_color_override("font_color", TITLE_BASE_COLOR)
-	title_label.add_theme_color_override("font_outline_color", TITLE_GLOW_COLOR)
-	title_label.add_theme_constant_override("outline_size", 6)
-
-
-func _update_title_shimmer() -> void:
-	if title_label == null:
-		return
-	var shimmer: float = 0.5 + 0.5 * sin(title_shimmer_time * TAU)
-	var alpha := lerpf(0.28, 0.72, shimmer)
-	title_label.add_theme_color_override("font_outline_color",
-		Color8(255, 140, 30, int(alpha * 255.0)))
-	title_label.add_theme_constant_override("outline_size", int(lerpf(4, 8, shimmer)))
+	pass
 
 
 func apply_separator_style() -> void:
